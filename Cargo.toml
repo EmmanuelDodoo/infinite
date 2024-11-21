@@ -1,0 +1,8 @@
+[package]
+name = "renderer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+iced = {version = "0.13.1", features = ["advanced",  "canvas"]}
+iced_graphics = {version = "0.13", features = ["geometry"]}
