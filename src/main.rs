@@ -8,7 +8,7 @@ use iced::{
     Element, Length, Renderer, Theme,
 };
 
-use canavs::*;
+use infinite::*;
 
 fn main() -> iced::Result {
     application("Playground", Playground::update, Playground::view)
@@ -61,28 +61,49 @@ impl<Message> Program<Message, Theme, Renderer> for Graph {
 
         let mut buffer = Buffer::new();
 
-        buffer.draw_text(
-            Text {
-                content: "Testing Infinite".into(),
-                position: (15., 45.).into(),
-                size: 20.0.into(),
-                ..Default::default()
-            },
-            Anchor::None,
-        );
+        buffer.draw_text(Text {
+            content: "Testing Infinite".into(),
+            position: (15., 45.).into(),
+            size: 20.0.into(),
+            ..Default::default()
+        });
 
         {
             let path = Path::circle((15., 45.).into(), 5.0.into());
-            buffer.fill(path, color2, Anchor::None);
+            buffer.fill_anchored(path, color2, Anchor::None);
         }
 
-        buffer.fill_rounded_rect((120.0, 120.), (150., 100.), 10., color, Anchor::None);
+        buffer.fill_rounded_rectangle((120.0, 120.), (150., 100.), 10., color);
 
         vec![buffer]
     }
 }
 
-mod canavs {
+/// A widget for an infinite 2D cartesian canvas
+mod infinite {
+    //! All points on the [`Infinite`] are considered as cartesian co-ordinates
+    //! with the origin at co-ord (0, 0)
+    //!
+    //! Functionality:
+    //! All functionality requires the [`Infinite`] to be hovered on by the
+    //! cursor. These are currently implemented:
+    //!     - Scrolling: Mouse scroll or Cmd(Ctrl) + arrow direction
+    //!     - Zoom: Shift + Mouse scroll or Shift + arrow direction
+    //!     - Reset Zoom: Shift + Home key
+    //!     - Reset Scroll: Home key
+    //!     - Reset Scroll and Zoom: Cmd(Ctrl) + Home key
+    //!
+    //! Note:
+    //!     - Text cannot be zoomed (scaled up or down).
+    //!     - Items on the canvas can be anchored on a single, both and no axis.
+    //!       An anchored Item does not move when scrolled on the anchoring axis.
+    //!     - The Scrolling direction for the [`Infinite`] can be set using
+    //!       [`ScrollDirection`].
+    //!     - Like the regualar Iced canvas, Items on an [`Infinite`] benefit
+    //!       from antialiasing being enabled.
+    //!     - Unlike the regular Iced canvas, unless otherwise stated, shapes
+    //!       are drawn with respect to their bottom-left point
+
     use std::marker::PhantomData;
 
     use iced::{
@@ -97,17 +118,25 @@ mod canavs {
 
     use iced_graphics::geometry;
 
+    use style::*;
+
     const DEFAULT_BACKGROUND: Background = Background::Color(color!(203, 213, 240));
 
     pub mod event {
+        /// The status of an [`Event`] after being processed.
         #[derive(Debug, Default, Clone, Copy, PartialEq)]
         pub enum Status {
+            /// The [`Event`] was handled.
             Captured,
             #[default]
+            /// The [`Event`] was not handled.
             Ignored,
         }
 
         impl Status {
+            /// Merges two [`Status`].
+            ///
+            /// [`Status::Captured`] takes precedence over [`Status::Ignored`].
             pub fn merge(self, other: Self) -> Self {
                 match (self, other) {
                     (Status::Captured, _) => Status::Captured,
@@ -127,9 +156,13 @@ mod canavs {
         }
 
         #[derive(Debug, Clone, PartialEq)]
+        /// An [`Infinite`] canvas event.
         pub enum Event {
+            /// A mouse event.
             Mouse(iced::mouse::Event),
+            /// A keyboard event.
             Keyboard(iced::keyboard::Event),
+            /// A touch event.
             Touch(iced::touch::Event),
         }
 
@@ -144,6 +177,9 @@ mod canavs {
         }
     }
 
+    /// The state and logic of a [`Infinite`].
+    ///
+    /// A [`Program`] can mutate internal state and produce messages for an application.
     pub trait Program<Message, Theme = iced::Theme, Renderer = iced::Renderer>
     where
         Renderer: iced_graphics::geometry::Renderer,
@@ -178,28 +214,30 @@ mod canavs {
         }
     }
 
-    /// Determines the degree by which points on the canvas are fixed
+    /// Determines the degree by which points on the canvas are fixed.
     #[derive(Debug, Default, Clone, Copy, PartialEq)]
     pub enum Anchor {
-        /// Both x and y coordinates are fixed and do not move in any direction
+        /// Both x and y coordinates are fixed and do not move in any direction.
         Both,
         /// The x coordinate is fixed while the y coordinate can
-        /// freely move
+        /// freely move.
         X,
         /// The y coordinate  is fixed while the x coordinate can
-        /// freely move
+        /// freely move.
         Y,
         /// Both x and y coordinates are not anchored and are free to move in
-        /// any direction
+        /// any direction.
         #[default]
         None,
     }
 
     #[derive(Debug, Clone)]
+    /// A buffer which records the items on an [`Infinite`] canvas.
     pub struct Buffer<'a> {
         fills: Vec<(Path, Fill, Anchor)>,
         strokes: Vec<(Path, Stroke<'a>, Anchor)>,
         text: Vec<(Text, Anchor)>,
+        /// If `Some`, all items in this buffer inherit this anchor.
         anchor: Option<Anchor>,
     }
 
@@ -210,6 +248,7 @@ mod canavs {
     }
 
     impl<'a> Buffer<'a> {
+        /// Creates a new [`Buffer`].
         pub fn new() -> Self {
             Self {
                 fills: Vec::new(),
@@ -219,33 +258,56 @@ mod canavs {
             }
         }
 
-        /// Creates a [`Buffer`] with all canvas items anchored
+        /// Creates a [`Buffer`] with all items having the same anchored.
+        ///
+        ///
+        /// After calling this function, the all stored items, both past and
+        /// future will have their anchors removed.
         pub fn anchor_all(mut self, anchor: Anchor) -> Self {
             self.anchor = Some(anchor);
             self
         }
 
-        pub fn draw_stroke(&mut self, path: Path, stroke: impl Into<Stroke<'a>>, anchor: Anchor) {
-            self.strokes.push((path, stroke.into(), anchor))
-        }
-
-        pub fn draw_fill(&mut self, path: Path, fill: impl Into<Fill>, anchor: Anchor) {
-            self.fills.push((path, fill.into(), anchor))
-        }
-
-        pub fn draw_text(&mut self, text: impl Into<Text>, anchor: Anchor) {
+        /// Draws the characters of the given [`Text`] on the [`Infinite`] canvas with the anchor.
+        pub fn draw_text_anchored(&mut self, text: impl Into<Text>, anchor: Anchor) {
             self.text.push((text.into(), anchor))
         }
 
-        pub fn fill(&mut self, path: Path, fill: impl Into<Fill>, anchor: Anchor) {
+        /// Draws the characters of the given [`Text`] on the [`Infinite`] canvas using the anchor of the [`Buffer`].
+        pub fn draw_text(&mut self, text: impl Into<Text>) {
+            self.text
+                .push((text.into(), self.anchor.unwrap_or_default()))
+        }
+
+        /// Draws the fill of the given [`Path`] on the [`Infinite`] canvas with an anchor by filling it with the provided style.
+        pub fn fill_anchored(&mut self, path: Path, fill: impl Into<Fill>, anchor: Anchor) {
             self.fills.push((path, fill.into(), anchor))
         }
 
-        pub fn stroke(&mut self, path: Path, stroke: impl Into<Stroke<'a>>, anchor: Anchor) {
+        /// Draws the fill of the given [`Path`] on the [`Infinite`] canvas with the [`Buffer`]'s anchor by filling it with the provided style.
+        pub fn fill(&mut self, path: Path, fill: impl Into<Fill>) {
+            self.fills
+                .push((path, fill.into(), self.anchor.unwrap_or_default()))
+        }
+
+        /// Draws the stroke of the given [`Path`] on the [`Infinite`] canvas with the provided style and anchor.
+        pub fn stroke_anchored(
+            &mut self,
+            path: Path,
+            stroke: impl Into<Stroke<'a>>,
+            anchor: Anchor,
+        ) {
             self.strokes.push((path, stroke.into(), anchor))
         }
 
-        pub fn fill_rect(
+        /// Draws the stroke of the given [`Path`] on the [`Infinite`] canvas with the provided style and the [`Buffer`]'s anchor.
+        pub fn stroke(&mut self, path: Path, stroke: impl Into<Stroke<'a>>) {
+            self.strokes
+                .push((path, stroke.into(), self.anchor.unwrap_or_default()))
+        }
+
+        /// Draws a rectangle given its top-left corner coordinate, [`Size`] and [`Anchor`] by filling it with the provided style.
+        pub fn fill_rectangle_anchored(
             &mut self,
             top_left: impl Into<Point>,
             size: impl Into<Size>,
@@ -255,15 +317,32 @@ mod canavs {
             let size: Size = size.into();
             let point = top_left.into();
 
-            //let bottom_left = point - Into::<Vector>::into(size);
             let bottom_left = point - Vector::new(0., size.height);
 
             let path = Path::rectangle(bottom_left, size);
 
-            self.fill(path, fill, anchor)
+            self.fill_anchored(path, fill, anchor)
         }
 
-        pub fn fill_rounded_rect(
+        /// Draws a rectangle given its top-left corner coordinate and its [`Size`] by filling it with the provided style and the [`Buffer`]'s anchor.
+        pub fn fill_rectangle(
+            &mut self,
+            top_left: impl Into<Point>,
+            size: impl Into<Size>,
+            fill: impl Into<Fill>,
+        ) {
+            let size: Size = size.into();
+            let point = top_left.into();
+
+            let bottom_left = point - Vector::new(0., size.height);
+
+            let path = Path::rectangle(bottom_left, size);
+
+            self.fill_anchored(path, fill, self.anchor.unwrap_or_default())
+        }
+
+        /// Draws a rounded rectangle given its top-left corner coordinate, [`Size`] and [`Anchor`] by filling it with the provided style.
+        pub fn fill_rounded_rectangle_anchored(
             &mut self,
             top_left: impl Into<Point>,
             size: impl Into<Size>,
@@ -278,10 +357,29 @@ mod canavs {
 
             let path = Path::rounded_rectangle(top_left, size, radius.into());
 
-            self.fill(path, fill, anchor);
+            self.fill_anchored(path, fill, anchor);
         }
 
-        pub fn stroke_rect(
+        /// Draws a rounded rectangle given its top-left corner coordinate and its [`Size`] by filling it with the provided style and the [`Buffer`]'s anchor.
+        pub fn fill_rounded_rectangle(
+            &mut self,
+            top_left: impl Into<Point>,
+            size: impl Into<Size>,
+            radius: impl Into<Radius>,
+            fill: impl Into<Fill>,
+        ) {
+            let size: Size = size.into();
+            let point = top_left.into();
+
+            let top_left = point - Vector::new(0., size.height);
+
+            let path = Path::rounded_rectangle(top_left, size, radius.into());
+
+            self.fill(path, fill);
+        }
+
+        /// Draws the stroke of a rectangle with the provided style given its top-left corner coordinate and its [`Size`].
+        pub fn stroke_rect_anchored(
             &mut self,
             top_left: impl Into<Point>,
             size: impl Into<Size>,
@@ -296,10 +394,29 @@ mod canavs {
 
             let path = Path::rectangle(bottom_left, size);
 
-            self.stroke(path, stroke, anchor)
+            self.stroke_anchored(path, stroke, anchor)
         }
 
-        pub fn stroke_rounded_rect(
+        /// Draws the stroke of a rectangle with the provided style given its top-left corner coordinate and its [`Size`] and the [`Buffer`]'s anchor.
+        pub fn stroke_rectangle(
+            &mut self,
+            top_left: impl Into<Point>,
+            size: impl Into<Size>,
+            stroke: impl Into<Stroke<'a>>,
+        ) {
+            let size: Size = size.into();
+            let point = top_left.into();
+
+            //let bottom_left = point - Into::<Vector>::into(size);
+            let bottom_left = point - Vector::new(0., size.height);
+
+            let path = Path::rectangle(bottom_left, size);
+
+            self.stroke(path, stroke)
+        }
+
+        /// Draws the stroke of a rounded rectangle with the provided style given its top-left corner coordinate and its [`Size`].
+        pub fn stroke_rounded_rectangle_anchored(
             &mut self,
             top_left: impl Into<Point>,
             size: impl Into<Size>,
@@ -314,7 +431,25 @@ mod canavs {
 
             let path = Path::rounded_rectangle(top_left, size, radius.into());
 
-            self.stroke(path, stroke, anchor);
+            self.stroke_anchored(path, stroke, anchor);
+        }
+
+        /// Draws the stroke of a rounded rectangle with the provided style given its top-left corner coordinate and its [`Size`] and the [`Buffer`]'s anchor.
+        pub fn stroke_rounded_rectangle(
+            &mut self,
+            top_left: impl Into<Point>,
+            size: impl Into<Size>,
+            radius: impl Into<Radius>,
+            stroke: impl Into<Stroke<'a>>,
+        ) {
+            let size: Size = size.into();
+            let point = top_left.into();
+
+            let top_left = point - Vector::new(0., size.height);
+
+            let path = Path::rounded_rectangle(top_left, size, radius.into());
+
+            self.stroke(path, stroke);
         }
 
         fn draw_fills<State, Renderer: geometry::Renderer>(
@@ -385,6 +520,7 @@ mod canavs {
         Both,
     }
 
+    /// A widget capable of drawing 2D graphics on an infinite Cartesian plane.
     pub struct Infinite<'a, P, Message, Theme = iced::Theme, Renderer = iced::Renderer>
     where
         Theme: Catalog,
@@ -408,6 +544,7 @@ mod canavs {
     {
         const DEFAULT_SIZE: f32 = 300.0;
 
+        /// Creates a new [`Infinite`].
         pub fn new(program: P) -> Self {
             Self {
                 width: Length::Fixed(Self::DEFAULT_SIZE),
@@ -420,22 +557,26 @@ mod canavs {
             }
         }
 
+        /// Sets the height of the [`Infinite`].
         pub fn height(mut self, height: impl Into<Length>) -> Self {
             self.height = height.into();
             self
         }
 
+        /// Sets the width of the [`Infinite`].
         pub fn width(mut self, width: impl Into<Length>) -> Self {
             self.width = width.into();
             self
         }
 
+        /// Sets the supported scroll direction of the [`Infinite`].
         pub fn scroll_direction(mut self, direction: ScrollDirection) -> Self {
             self.direction = direction;
             self
         }
 
-        pub fn style(mut self, style: impl Fn(&Theme, InfiniteStatus) -> InfiniteStyle + 'a) -> Self
+        /// Sets  the style of the [`Infinite`].
+        pub fn style(mut self, style: impl Fn(&Theme, Status) -> Style + 'a) -> Self
         where
             Theme::Class<'a>: From<StyleFn<'a, Theme>>,
         {
@@ -693,9 +834,9 @@ mod canavs {
             }
 
             let status = if is_mouse_over {
-                InfiniteStatus::Hovered
+                Status::Hovered
             } else {
-                InfiniteStatus::Active
+                Status::Active
             };
 
             let style = theme.style(&self.style, status);
@@ -706,7 +847,7 @@ mod canavs {
                 advanced::renderer::Quad {
                     bounds,
                     border: style.border,
-                    shadow: style.shadow,
+                    shadow: Shadow::default(),
                 },
                 style.background,
             );
@@ -887,77 +1028,89 @@ mod canavs {
         }
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    pub struct InfiniteStyle {
-        border: Border,
-        background: Background,
-        shadow: Shadow,
-        details_border_radius: Radius,
-        details_background: Color,
-        details_text: Color,
-    }
+    pub mod style {
+        use super::*;
 
-    #[derive(Debug, Clone, Copy, Default, PartialEq)]
-    pub enum InfiniteStatus {
-        #[default]
-        Active,
-        Hovered,
-    }
-
-    pub trait Catalog {
-        /// The item class of the [`Catalog`].
-        type Class<'a>;
-
-        /// The default class produced by the [`Catalog`].
-        fn default<'a>() -> Self::Class<'a>;
-
-        /// The [`Style`] of a class with the given status.
-        fn style(&self, class: &Self::Class<'_>, status: InfiniteStatus) -> InfiniteStyle;
-    }
-
-    /// A styling function for an [`Infinite`].
-    pub type StyleFn<'a, Theme> = Box<dyn Fn(&Theme, InfiniteStatus) -> InfiniteStyle + 'a>;
-
-    impl Catalog for Theme {
-        type Class<'a> = StyleFn<'a, Self>;
-
-        fn default<'a>() -> Self::Class<'a> {
-            Box::new(default)
+        #[derive(Debug, Clone, Copy, PartialEq)]
+        /// The appearance of the [`Infinite`].
+        pub struct Style {
+            /// The [`Border`] of the [`Infinite`].
+            pub border: Border,
+            /// The [`Background`] of the [`Infinite`].
+            pub background: Background,
+            /// The border radius of the [`Infinite`]'s details.
+            pub details_border_radius: Radius,
+            /// The [`Background`] of the [`Infinite`]'s details.
+            pub details_background: Color,
+            /// The text [`Color`] of the [`Infinite`]'s details.
+            pub details_text: Color,
         }
 
-        fn style(&self, class: &Self::Class<'_>, status: InfiniteStatus) -> InfiniteStyle {
-            class(self, status)
+        #[derive(Debug, Clone, Copy, Default, PartialEq)]
+        /// The possible status of an [`Infinite`].
+        pub enum Status {
+            #[default]
+            /// The [`Infinite`] is not being hovered on.
+            Active,
+            /// The [`Infinite`] is being hovered on.
+            Hovered,
         }
-    }
 
-    pub fn default(theme: &Theme, status: InfiniteStatus) -> InfiniteStyle {
-        let palette = theme.extended_palette();
-        let shadow = Shadow::default();
-        let border_width = 2.5;
+        /// The theme of an [`Infinite`].
+        pub trait Catalog {
+            /// The item class of the [`Catalog`].
+            type Class<'a>;
 
-        let background = palette.background.base;
-        let details_background = Color {
-            a: 0.9,
-            ..background.color
-        };
-        let details_text = background.text;
+            /// The default class produced by the [`Catalog`].
+            fn default<'a>() -> Self::Class<'a>;
 
-        let border = match status {
-            InfiniteStatus::Active => Border::default()
-                .width(border_width)
-                .color(palette.background.base.color),
-            InfiniteStatus::Hovered => Border::default()
-                .width(border_width)
-                .color(palette.primary.strong.color),
-        };
+            /// The [`Style`] of a class with the given status.
+            fn style(&self, class: &Self::Class<'_>, status: Status) -> Style;
+        }
 
-        InfiniteStyle {
-            shadow,
-            border,
-            background: DEFAULT_BACKGROUND,
-            details_background,
-            details_border_radius: 5.into(),
-            details_text,
+        /// A styling function for an [`Infinite`].
+        pub type StyleFn<'a, Theme> = Box<dyn Fn(&Theme, Status) -> Style + 'a>;
+
+        impl Catalog for Theme {
+            type Class<'a> = StyleFn<'a, Self>;
+
+            fn default<'a>() -> Self::Class<'a> {
+                Box::new(default)
+            }
+
+            fn style(&self, class: &Self::Class<'_>, status: Status) -> Style {
+                class(self, status)
+            }
+        }
+
+        /// The default [`Theme`] styling of an [`Infinite`].
+        pub fn default(theme: &Theme, status: Status) -> Style {
+            let palette = theme.extended_palette();
+            let border_width = 2.5;
+
+            let background = palette.background.base;
+            let details_background = Color {
+                a: 0.9,
+                ..background.color
+            };
+            let details_text = background.text;
+
+            let border = match status {
+                Status::Active => Border::default()
+                    .width(border_width)
+                    .color(palette.background.base.color),
+                Status::Hovered => Border::default()
+                    .width(border_width)
+                    .color(palette.primary.strong.color),
+            };
+
+            Style {
+                border,
+                background: DEFAULT_BACKGROUND,
+                details_background,
+                details_border_radius: 5.into(),
+                details_text,
+            }
         }
     }
 
