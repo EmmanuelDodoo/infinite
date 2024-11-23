@@ -142,6 +142,7 @@ mod infinite {
 
     use iced_graphics::geometry;
 
+    use event::Event;
     use style::*;
 
     const DEFAULT_BACKGROUND: Background = Background::Color(color!(203, 213, 240));
@@ -208,8 +209,10 @@ mod infinite {
     where
         Renderer: iced_graphics::geometry::Renderer,
     {
+        /// The internal state mutated by the [`Program`].
         type State: Default + 'static;
 
+        /// Draws the state of the [`Program`], returning a bunch of [`Buffer`].
         fn draw<'a>(
             &self,
             state: &Self::State,
@@ -219,16 +222,25 @@ mod infinite {
             center: Point,
         ) -> Vec<Buffer<'a>>;
 
+        /// Updates the state of the [`Program`].
+        ///
+        /// Captured [`Event`]s do not trigger a scroll or zoom on the
+        /// [`Infinite`].
+        ///
+        /// This method can optionally return a Message to notify an application of any meaningful interactions.
+        ///
+        /// By default, this method does and returns nothing.
         fn update(
             &self,
             _state: &mut Self::State,
-            _event: event::Event,
+            _event: Event,
             _bounds: Rectangle,
             _cursor: mouse::Cursor,
         ) -> (event::Status, Option<Message>) {
             (event::Status::Ignored, None)
         }
 
+        /// Returns the current mouse interaction of the [`Program`].
         fn mouse_interaction(
             &self,
             _state: &Self::State,
@@ -238,6 +250,11 @@ mod infinite {
             mouse::Interaction::default()
         }
 
+        /// Updates the state of the [`Program`] whenever a scroll occurs.
+        ///
+        /// This method can optionally return a Message to notify an application of any meaningful interactions.
+        ///
+        /// By default, this method does and returns nothing. source
         fn on_scroll(
             &self,
             _state: &mut Self::State,
@@ -248,6 +265,11 @@ mod infinite {
             None
         }
 
+        /// Updates the state of the [`Program`] whenever a zoom occurs.
+        ///
+        /// This method can optionally return a Message to notify an application of any meaningful interactions.
+        ///
+        /// By default, this method does and returns nothing. source
         fn on_zoom(
             &self,
             _state: &mut Self::State,
@@ -666,9 +688,9 @@ mod infinite {
             let bounds = layout.bounds();
 
             let canvas_event = match event.clone() {
-                iced::Event::Mouse(event) => Some(event::Event::Mouse(event)),
-                iced::Event::Keyboard(event) => Some(event::Event::Keyboard(event)),
-                iced::Event::Touch(event) => Some(event::Event::Touch(event)),
+                iced::Event::Mouse(event) => Some(Event::Mouse(event)),
+                iced::Event::Keyboard(event) => Some(Event::Keyboard(event)),
+                iced::Event::Touch(event) => Some(Event::Touch(event)),
                 _ => None,
             };
 
