@@ -306,6 +306,8 @@ mod infinite {
         text: Vec<(Text, Anchor)>,
         /// If `Some`, all items in this buffer inherit this anchor.
         anchor: Option<Anchor>,
+        /// If true a scale transform is applied to all recorded Path.
+        scale: bool,
     }
 
     impl<'a> Default for Buffer<'a> {
@@ -322,6 +324,7 @@ mod infinite {
                 strokes: Vec::new(),
                 text: Vec::new(),
                 anchor: None,
+                scale: true,
             }
         }
 
@@ -332,6 +335,12 @@ mod infinite {
         /// future will have their anchors removed.
         pub fn anchor_all(mut self, anchor: Anchor) -> Self {
             self.anchor = Some(anchor);
+            self
+        }
+
+        /// Sets whether all items in the [`Buffer`] should be scale transformed
+        pub fn scale_all(mut self, scale: bool) -> Self {
+            self.scale = scale;
             self
         }
 
@@ -528,7 +537,13 @@ mod infinite {
             self.fills
                 .iter()
                 .map(|(path, fill, anchor)| {
-                    let path = transform_path(state, center, path, self.anchor.unwrap_or(*anchor));
+                    let path = transform_path(
+                        state,
+                        center,
+                        path,
+                        self.anchor.unwrap_or(*anchor),
+                        self.scale,
+                    );
                     (path, *fill)
                 })
                 .for_each(|(path, fill)| frame.fill(&path, fill));
@@ -543,7 +558,13 @@ mod infinite {
             self.strokes
                 .iter()
                 .map(|(path, stroke, anchor)| {
-                    let path = transform_path(state, center, path, self.anchor.unwrap_or(*anchor));
+                    let path = transform_path(
+                        state,
+                        center,
+                        path,
+                        self.anchor.unwrap_or(*anchor),
+                        self.scale,
+                    );
                     (path, *stroke)
                 })
                 .for_each(|(path, stroke)| frame.stroke(&path, stroke));
@@ -1288,6 +1309,7 @@ mod infinite {
         center: Point,
         path: &Path,
         anchor: Anchor,
+        scale: bool,
     ) -> Path {
         let offset = match anchor {
             Anchor::None => state.offset,
@@ -1298,7 +1320,7 @@ mod infinite {
         let center = center - offset;
         let trans_x = center.x;
         let trans_y = center.y;
-        let scale = state.scale;
+        let scale = if scale { state.scale } else { 1.0 };
 
         let transform = Transform2D::new(scale, 0.0, 0.0, -scale, trans_x, trans_y);
 
