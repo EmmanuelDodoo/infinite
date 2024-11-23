@@ -3,9 +3,9 @@ use iced::{
     application, color,
     widget::{
         canvas::{Path, Text},
-        center,
+        center, text,
     },
-    Element, Length, Theme,
+    Element, Length, Renderer, Theme,
 };
 
 use canavs::*;
@@ -13,7 +13,7 @@ use canavs::*;
 fn main() -> iced::Result {
     application("Playground", Playground::update, Playground::view)
         .centered()
-        //.theme(|_| Theme::TokyoNight)
+        .theme(|_| Theme::TokyoNight)
         .antialiasing(true)
         .run()
 }
@@ -29,12 +29,39 @@ impl Playground {
         match message {}
     }
 
-    fn graph(&self) -> Infinite<'_, Theme> {
-        let mut infinite = Infinite::new();
+    fn graph(&self) -> Infinite<'_, Graph, Message, Theme, Renderer> {
+        let infinite = Infinite::new(Graph);
+        infinite
+    }
+
+    fn view(&self) -> Element<Message> {
+        let content = self.graph().width(900).height(750);
+        //let content = text("Work In Progress");
+
+        let content = center(content).width(Length::Fill).height(Length::Fill);
+
+        content.into()
+    }
+}
+
+struct Graph;
+
+impl<Message> Program<Message, Theme, Renderer> for Graph {
+    type State = ();
+
+    fn draw<'a>(
+        &self,
+        _state: &Self::State,
+        _theme: &Theme,
+        _bounds: iced::Rectangle,
+        _cursor: iced::mouse::Cursor,
+    ) -> Vec<Buffer<'a>> {
         let color2 = color!(128, 0, 128);
         let color = color!(0, 128, 128);
 
-        infinite.draw_text(
+        let mut buffer = Buffer::new();
+
+        buffer.draw_text(
             Text {
                 content: "Testing Infinite".into(),
                 position: (15., 45.).into(),
@@ -46,28 +73,22 @@ impl Playground {
 
         {
             let path = Path::circle((15., 45.).into(), 5.0.into());
-            infinite.fill(path, color2, Anchor::None);
+            buffer.fill(path, color2, Anchor::None);
         }
 
-        infinite.fill_rounded_rect((120.0, 120.), (150., 100.), 10., color, Anchor::None);
+        buffer.fill_rounded_rect((120.0, 120.), (150., 100.), 10., color, Anchor::None);
 
-        infinite
-    }
-
-    fn view(&self) -> Element<Message> {
-        let infinite = self.graph().width(900).height(750);
-
-        let content = center(infinite).width(Length::Fill).height(Length::Fill);
-
-        content.into()
+        vec![buffer]
     }
 }
 
 mod canavs {
+    use std::marker::PhantomData;
+
     use iced::{
         advanced::{self, layout, widget::tree, Widget},
         border::Radius,
-        color, event, keyboard, mouse,
+        color, event as iced_event, keyboard, mouse,
         widget::canvas::{
             path::lyon_path::geom::euclid::Transform2D, Fill, Frame, Path, Stroke, Text,
         },
@@ -77,6 +98,85 @@ mod canavs {
     use iced_graphics::geometry;
 
     const DEFAULT_BACKGROUND: Background = Background::Color(color!(203, 213, 240));
+
+    pub mod event {
+        #[derive(Debug, Default, Clone, Copy, PartialEq)]
+        pub enum Status {
+            Captured,
+            #[default]
+            Ignored,
+        }
+
+        impl Status {
+            pub fn merge(self, other: Self) -> Self {
+                match (self, other) {
+                    (Status::Captured, _) => Status::Captured,
+                    (_, Status::Captured) => Status::Captured,
+                    _ => Status::Ignored,
+                }
+            }
+        }
+
+        impl From<Status> for iced::event::Status {
+            fn from(value: Status) -> Self {
+                match value {
+                    Status::Captured => iced::event::Status::Captured,
+                    Status::Ignored => iced::event::Status::Captured,
+                }
+            }
+        }
+
+        #[derive(Debug, Clone, PartialEq)]
+        pub enum Event {
+            Mouse(iced::mouse::Event),
+            Keyboard(iced::keyboard::Event),
+            Touch(iced::touch::Event),
+        }
+
+        impl From<Event> for iced::Event {
+            fn from(value: Event) -> Self {
+                match value {
+                    Event::Mouse(event) => iced::Event::Mouse(event),
+                    Event::Touch(event) => iced::Event::Touch(event),
+                    Event::Keyboard(event) => iced::Event::Keyboard(event),
+                }
+            }
+        }
+    }
+
+    pub trait Program<Message, Theme = iced::Theme, Renderer = iced::Renderer>
+    where
+        Renderer: iced_graphics::geometry::Renderer,
+    {
+        type State: Default + 'static;
+
+        fn draw<'a>(
+            &self,
+            state: &Self::State,
+            theme: &Theme,
+            bounds: Rectangle,
+            cursor: mouse::Cursor,
+        ) -> Vec<Buffer<'a>>;
+
+        fn update(
+            &self,
+            _state: &mut Self::State,
+            _event: event::Event,
+            _bounds: Rectangle,
+            _cursor: mouse::Cursor,
+        ) -> (event::Status, Option<Message>) {
+            (event::Status::Ignored, None)
+        }
+
+        fn mouse_interaction(
+            &self,
+            _state: &Self::State,
+            _bounds: Rectangle,
+            _cursor: mouse::Cursor,
+        ) -> mouse::Interaction {
+            mouse::Interaction::default()
+        }
+    }
 
     /// Determines the degree by which points on the canvas are fixed
     #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -96,10 +196,11 @@ mod canavs {
     }
 
     #[derive(Debug, Clone)]
-    struct Buffer<'a> {
+    pub struct Buffer<'a> {
         fills: Vec<(Path, Fill, Anchor)>,
         strokes: Vec<(Path, Stroke<'a>, Anchor)>,
         text: Vec<(Text, Anchor)>,
+        anchor: Option<Anchor>,
     }
 
     impl<'a> Default for Buffer<'a> {
@@ -109,24 +210,166 @@ mod canavs {
     }
 
     impl<'a> Buffer<'a> {
-        fn new() -> Self {
+        pub fn new() -> Self {
             Self {
                 fills: Vec::new(),
                 strokes: Vec::new(),
                 text: Vec::new(),
+                anchor: None,
             }
         }
 
-        fn draw_stroke(&mut self, path: Path, stroke: impl Into<Stroke<'a>>, anchor: Anchor) {
+        /// Creates a [`Buffer`] with all canvas items anchored
+        pub fn anchor_all(mut self, anchor: Anchor) -> Self {
+            self.anchor = Some(anchor);
+            self
+        }
+
+        pub fn draw_stroke(&mut self, path: Path, stroke: impl Into<Stroke<'a>>, anchor: Anchor) {
             self.strokes.push((path, stroke.into(), anchor))
         }
 
-        fn draw_fill(&mut self, path: Path, fill: impl Into<Fill>, anchor: Anchor) {
+        pub fn draw_fill(&mut self, path: Path, fill: impl Into<Fill>, anchor: Anchor) {
             self.fills.push((path, fill.into(), anchor))
         }
 
-        fn draw_text(&mut self, text: impl Into<Text>, anchor: Anchor) {
+        pub fn draw_text(&mut self, text: impl Into<Text>, anchor: Anchor) {
             self.text.push((text.into(), anchor))
+        }
+
+        pub fn fill(&mut self, path: Path, fill: impl Into<Fill>, anchor: Anchor) {
+            self.fills.push((path, fill.into(), anchor))
+        }
+
+        pub fn stroke(&mut self, path: Path, stroke: impl Into<Stroke<'a>>, anchor: Anchor) {
+            self.strokes.push((path, stroke.into(), anchor))
+        }
+
+        pub fn fill_rect(
+            &mut self,
+            top_left: impl Into<Point>,
+            size: impl Into<Size>,
+            fill: impl Into<Fill>,
+            anchor: Anchor,
+        ) {
+            let size: Size = size.into();
+            let point = top_left.into();
+
+            //let bottom_left = point - Into::<Vector>::into(size);
+            let bottom_left = point - Vector::new(0., size.height);
+
+            let path = Path::rectangle(bottom_left, size);
+
+            self.fill(path, fill, anchor)
+        }
+
+        pub fn fill_rounded_rect(
+            &mut self,
+            top_left: impl Into<Point>,
+            size: impl Into<Size>,
+            radius: impl Into<Radius>,
+            fill: impl Into<Fill>,
+            anchor: Anchor,
+        ) {
+            let size: Size = size.into();
+            let point = top_left.into();
+
+            let top_left = point - Vector::new(0., size.height);
+
+            let path = Path::rounded_rectangle(top_left, size, radius.into());
+
+            self.fill(path, fill, anchor);
+        }
+
+        pub fn stroke_rect(
+            &mut self,
+            top_left: impl Into<Point>,
+            size: impl Into<Size>,
+            stroke: impl Into<Stroke<'a>>,
+            anchor: Anchor,
+        ) {
+            let size: Size = size.into();
+            let point = top_left.into();
+
+            //let bottom_left = point - Into::<Vector>::into(size);
+            let bottom_left = point - Vector::new(0., size.height);
+
+            let path = Path::rectangle(bottom_left, size);
+
+            self.stroke(path, stroke, anchor)
+        }
+
+        pub fn stroke_rounded_rect(
+            &mut self,
+            top_left: impl Into<Point>,
+            size: impl Into<Size>,
+            radius: impl Into<Radius>,
+            stroke: impl Into<Stroke<'a>>,
+            anchor: Anchor,
+        ) {
+            let size: Size = size.into();
+            let point = top_left.into();
+
+            let top_left = point - Vector::new(0., size.height);
+
+            let path = Path::rounded_rectangle(top_left, size, radius.into());
+
+            self.stroke(path, stroke, anchor);
+        }
+
+        fn draw_fills<State, Renderer: geometry::Renderer>(
+            &self,
+            frame: &mut Frame<Renderer>,
+            state: &InfiniteState<State>,
+            center: Point,
+        ) {
+            self.fills
+                .iter()
+                .map(|(path, fill, anchor)| {
+                    let path = transform_path(state, center, path, self.anchor.unwrap_or(*anchor));
+                    (path, *fill)
+                })
+                .for_each(|(path, fill)| frame.fill(&path, fill));
+        }
+
+        fn draw_strokes<State, Renderer: geometry::Renderer>(
+            &self,
+            frame: &mut Frame<Renderer>,
+            state: &InfiniteState<State>,
+            center: Point,
+        ) {
+            self.strokes
+                .iter()
+                .map(|(path, stroke, anchor)| {
+                    let path = transform_path(state, center, path, self.anchor.unwrap_or(*anchor));
+                    (path, *stroke)
+                })
+                .for_each(|(path, stroke)| frame.stroke(&path, stroke));
+        }
+
+        fn draw_texts<State, Renderer: geometry::Renderer>(
+            &self,
+            frame: &mut Frame<Renderer>,
+            state: &InfiniteState<State>,
+            center: Point,
+        ) {
+            self.text
+                .iter()
+                .map(|(text, anchor)| {
+                    transform_text(state, center, text, self.anchor.unwrap_or(*anchor))
+                })
+                .for_each(|text| frame.fill_text(text));
+        }
+
+        fn draw<State, Renderer: geometry::Renderer>(
+            &self,
+            frame: &mut Frame<Renderer>,
+            state: &InfiniteState<State>,
+            center: Point,
+        ) {
+            self.draw_fills(frame, state, center);
+            self.draw_strokes(frame, state, center);
+            self.draw_texts(frame, state, center);
         }
     }
 
@@ -142,29 +385,37 @@ mod canavs {
         Both,
     }
 
-    pub struct Infinite<'a, Theme>
+    pub struct Infinite<'a, P, Message, Theme = iced::Theme, Renderer = iced::Renderer>
     where
         Theme: Catalog,
+        P: Program<Message, Theme, Renderer>,
+        Renderer: geometry::Renderer,
     {
-        buffer: Buffer<'a>,
         width: Length,
         height: Length,
         direction: ScrollDirection,
+        _message: PhantomData<Message>,
+        _renderer: PhantomData<Renderer>,
+        program: P,
         style: <Theme as Catalog>::Class<'a>,
     }
 
-    impl<'a, Theme> Infinite<'a, Theme>
+    impl<'a, P, Message, Theme, Renderer> Infinite<'a, P, Message, Theme, Renderer>
     where
         Theme: Catalog,
+        P: Program<Message, Theme, Renderer>,
+        Renderer: geometry::Renderer,
     {
         const DEFAULT_SIZE: f32 = 300.0;
 
-        pub fn new() -> Self {
+        pub fn new(program: P) -> Self {
             Self {
-                buffer: Buffer::default(),
                 width: Length::Fixed(Self::DEFAULT_SIZE),
                 height: Length::Fixed(Self::DEFAULT_SIZE),
                 direction: ScrollDirection::default(),
+                program,
+                _message: PhantomData::default(),
+                _renderer: PhantomData::default(),
                 style: Theme::default(),
             }
         }
@@ -191,96 +442,14 @@ mod canavs {
             self.style = (Box::new(style) as StyleFn<'a, Theme>).into();
             self
         }
-
-        pub fn fill(&mut self, path: Path, fill: impl Into<Fill>, anchor: Anchor) {
-            self.buffer.draw_fill(path, fill, anchor)
-        }
-
-        pub fn stroke(&mut self, path: Path, stroke: impl Into<Stroke<'a>>, anchor: Anchor) {
-            self.buffer.draw_stroke(path, stroke, anchor)
-        }
-
-        pub fn fill_rect(
-            &mut self,
-            top_left: impl Into<Point>,
-            size: impl Into<Size>,
-            fill: impl Into<Fill>,
-            anchor: Anchor,
-        ) {
-            let size: Size = size.into();
-            let point = top_left.into();
-
-            //let bottom_left = point - Into::<Vector>::into(size);
-            let bottom_left = point - Vector::new(0., size.height);
-
-            let path = Path::rectangle(bottom_left, size);
-
-            self.buffer.draw_fill(path, fill, anchor)
-        }
-
-        pub fn fill_rounded_rect(
-            &mut self,
-            top_left: impl Into<Point>,
-            size: impl Into<Size>,
-            radius: impl Into<Radius>,
-            fill: impl Into<Fill>,
-            anchor: Anchor,
-        ) {
-            let size: Size = size.into();
-            let point = top_left.into();
-
-            let top_left = point - Vector::new(0., size.height);
-
-            let path = Path::rounded_rectangle(top_left, size, radius.into());
-
-            self.buffer.draw_fill(path, fill, anchor);
-        }
-
-        pub fn stroke_rect(
-            &mut self,
-            top_left: impl Into<Point>,
-            size: impl Into<Size>,
-            stroke: impl Into<Stroke<'a>>,
-            anchor: Anchor,
-        ) {
-            let size: Size = size.into();
-            let point = top_left.into();
-
-            //let bottom_left = point - Into::<Vector>::into(size);
-            let bottom_left = point - Vector::new(0., size.height);
-
-            let path = Path::rectangle(bottom_left, size);
-
-            self.buffer.draw_stroke(path, stroke, anchor)
-        }
-
-        pub fn stroke_rounded_rect(
-            &mut self,
-            top_left: impl Into<Point>,
-            size: impl Into<Size>,
-            radius: impl Into<Radius>,
-            stroke: impl Into<Stroke<'a>>,
-            anchor: Anchor,
-        ) {
-            let size: Size = size.into();
-            let point = top_left.into();
-
-            let top_left = point - Vector::new(0., size.height);
-
-            let path = Path::rounded_rectangle(top_left, size, radius.into());
-
-            self.buffer.draw_stroke(path, stroke, anchor);
-        }
-
-        pub fn draw_text(&mut self, text: impl Into<Text>, anchor: Anchor) {
-            self.buffer.draw_text(text, anchor)
-        }
     }
 
-    impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer> for Infinite<'a, Theme>
+    impl<'a, P, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
+        for Infinite<'a, P, Message, Theme, Renderer>
     where
-        Renderer: advanced::Renderer + geometry::Renderer,
         Theme: Catalog,
+        P: Program<Message, Theme, Renderer>,
+        Renderer: geometry::Renderer,
     {
         fn size(&self) -> Size<Length> {
             Size {
@@ -290,11 +459,11 @@ mod canavs {
         }
 
         fn tag(&self) -> tree::Tag {
-            tree::Tag::of::<InfiniteState>()
+            tree::Tag::of::<InfiniteState<P::State>>()
         }
 
         fn state(&self) -> tree::State {
-            tree::State::new(InfiniteState::new())
+            tree::State::new(InfiniteState::<P::State>::new())
         }
 
         fn on_event(
@@ -305,27 +474,50 @@ mod canavs {
             cursor: advanced::mouse::Cursor,
             _renderer: &Renderer,
             _clipboard: &mut dyn advanced::Clipboard,
-            _shell: &mut advanced::Shell<'_, Message>,
+            shell: &mut advanced::Shell<'_, Message>,
             _viewport: &Rectangle,
-        ) -> event::Status {
-            if !cursor.is_over(layout.bounds()) {
-                return event::Status::Ignored;
+        ) -> iced_event::Status {
+            let bounds = layout.bounds();
+
+            let canvas_event = match event.clone() {
+                iced::Event::Mouse(event) => Some(event::Event::Mouse(event)),
+                iced::Event::Keyboard(event) => Some(event::Event::Keyboard(event)),
+                iced::Event::Touch(event) => Some(event::Event::Touch(event)),
+                _ => None,
+            };
+
+            if let Some(canvas_event) = canvas_event {
+                let state = &mut state.state.downcast_mut::<InfiniteState<P::State>>().state;
+
+                let (status, message) = self.program.update(state, canvas_event, bounds, cursor);
+
+                if let Some(message) = message {
+                    shell.publish(message);
+                }
+
+                if status == event::Status::Captured {
+                    return status.into();
+                }
+            }
+
+            if !cursor.is_over(bounds) {
+                return iced_event::Status::Ignored;
             }
 
             match event {
                 iced::Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
-                    let state = state.state.downcast_mut::<InfiniteState>();
+                    let state = state.state.downcast_mut::<InfiniteState<P::State>>();
 
                     match delta {
                         // Zoom
                         mouse::ScrollDelta::Lines { y, .. } if state.keyboard_modifier.shift() => {
                             state.scale += y;
 
-                            event::Status::Captured
+                            iced_event::Status::Captured
                         }
                         mouse::ScrollDelta::Pixels { y, .. } if state.keyboard_modifier.shift() => {
                             state.scale += y;
-                            event::Status::Captured
+                            iced_event::Status::Captured
                         }
 
                         // Translation
@@ -338,7 +530,7 @@ mod canavs {
 
                             state.offset = state.offset - offset;
 
-                            event::Status::Captured
+                            iced_event::Status::Captured
                         }
                         mouse::ScrollDelta::Lines { x, y } => {
                             let mult = 100.0;
@@ -350,12 +542,12 @@ mod canavs {
 
                             state.offset = state.offset - offset;
 
-                            event::Status::Captured
+                            iced_event::Status::Captured
                         }
                     }
                 }
                 iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
-                    let state = state.state.downcast_mut::<InfiniteState>();
+                    let state = state.state.downcast_mut::<InfiniteState<P::State>>();
                     let translation = 25.0;
                     let zoom = 0.1;
                     match key {
@@ -371,7 +563,7 @@ mod canavs {
 
                             state.offset = state.offset - offset;
 
-                            event::Status::Captured
+                            iced_event::Status::Captured
                         }
 
                         keyboard::Key::Named(keyboard::key::Named::ArrowDown)
@@ -384,7 +576,7 @@ mod canavs {
                             };
                             state.offset = state.offset + offset;
 
-                            event::Status::Captured
+                            iced_event::Status::Captured
                         }
 
                         keyboard::Key::Named(keyboard::key::Named::ArrowLeft)
@@ -397,7 +589,7 @@ mod canavs {
                             };
                             state.offset = state.offset - offset;
 
-                            event::Status::Captured
+                            iced_event::Status::Captured
                         }
                         keyboard::Key::Named(keyboard::key::Named::ArrowRight)
                             if modifiers.command() =>
@@ -409,7 +601,7 @@ mod canavs {
                             };
                             state.offset = state.offset + offset;
 
-                            event::Status::Captured
+                            iced_event::Status::Captured
                         }
 
                         // Zoom
@@ -418,7 +610,7 @@ mod canavs {
                         {
                             state.scale += zoom;
 
-                            event::Status::Captured
+                            iced_event::Status::Captured
                         }
 
                         keyboard::Key::Named(keyboard::key::Named::ArrowDown)
@@ -426,38 +618,52 @@ mod canavs {
                         {
                             state.scale -= zoom;
 
-                            event::Status::Captured
+                            iced_event::Status::Captured
                         }
 
                         // Resets
                         keyboard::Key::Named(keyboard::key::Named::Home) if modifiers.command() => {
                             state.reset_all();
-                            event::Status::Captured
+                            iced_event::Status::Captured
                         }
 
                         keyboard::Key::Named(keyboard::key::Named::Home) if modifiers.shift() => {
                             state.reset_scale();
-                            event::Status::Captured
+                            iced_event::Status::Captured
                         }
 
                         keyboard::Key::Named(keyboard::key::Named::Home) => {
                             state.reset_offset();
-                            event::Status::Captured
+                            iced_event::Status::Captured
                         }
 
-                        _ => event::Status::Ignored,
+                        _ => iced_event::Status::Ignored,
                     }
                 }
 
                 iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
-                    let state = state.state.downcast_mut::<InfiniteState>();
+                    let state = state.state.downcast_mut::<InfiniteState<P::State>>();
                     state.keyboard_modifier = modifiers;
 
-                    event::Status::Captured
+                    iced_event::Status::Captured
                 }
 
-                _ => event::Status::Ignored,
+                _ => iced_event::Status::Ignored,
             }
+        }
+
+        fn mouse_interaction(
+            &self,
+            state: &tree::Tree,
+            layout: layout::Layout<'_>,
+            cursor: advanced::mouse::Cursor,
+            _viewport: &Rectangle,
+            _renderer: &Renderer,
+        ) -> advanced::mouse::Interaction {
+            let bounds = layout.bounds();
+            let state = &state.state.downcast_ref::<InfiniteState<P::State>>().state;
+
+            self.program.mouse_interaction(&state, bounds, cursor)
         }
 
         fn layout(
@@ -494,7 +700,7 @@ mod canavs {
 
             let style = theme.style(&self.style, status);
 
-            let state = tree.state.downcast_ref::<InfiniteState>();
+            let state = tree.state.downcast_ref::<InfiniteState<P::State>>();
 
             renderer.fill_quad(
                 advanced::renderer::Quad {
@@ -511,29 +717,11 @@ mod canavs {
                 let mut frame = Frame::new(renderer, bounds.size());
                 let center = frame.center();
 
-                self.buffer
-                    .fills
-                    .iter()
-                    .map(|(path, fill, anchor)| {
-                        let path = state.apply_path_transform(center, path, *anchor);
-                        (path, *fill)
-                    })
-                    .for_each(|(path, fill)| frame.fill(&path, fill));
+                let buffers = self.program.draw(&state.state, theme, bounds, cursor);
 
-                self.buffer
-                    .strokes
-                    .iter()
-                    .map(|(path, stroke, anchor)| {
-                        let path = state.apply_path_transform(center, path, *anchor);
-                        (path, *stroke)
-                    })
-                    .for_each(|(path, stroke)| frame.stroke(&path, stroke));
-
-                self.buffer
-                    .text
-                    .iter()
-                    .map(|(text, anchor)| state.apply_text_transform(center, text, *anchor))
-                    .for_each(|text| frame.fill_text(text));
+                for buffer in buffers {
+                    buffer.draw(&mut frame, state, center);
+                }
 
                 if state.scale != 1.0 {
                     let pos = (bounds.width * 0.9, bounds.height * 0.95).into();
@@ -643,28 +831,35 @@ mod canavs {
         }
     }
 
-    impl<'a, Message, Theme> From<Infinite<'a, Theme>> for Element<'a, Message, Theme>
+    impl<'a, P, Message, Theme, Renderer> From<Infinite<'a, P, Message, Theme, Renderer>>
+        for Element<'a, Message, Theme, Renderer>
     where
         Message: 'a,
         Theme: Catalog + 'a,
+        P: Program<Message, Theme, Renderer> + 'a,
+        Renderer: geometry::Renderer + 'a,
     {
-        fn from(value: Infinite<'a, Theme>) -> Self {
+        fn from(value: Infinite<'a, P, Message, Theme, Renderer>) -> Self {
             Element::new(value)
         }
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    struct InfiniteState {
+    struct InfiniteState<State> {
         offset: Vector,
         scale: f32,
         keyboard_modifier: keyboard::Modifiers,
+        state: State,
     }
 
-    impl InfiniteState {
+    impl<State> InfiniteState<State>
+    where
+        State: Default,
+    {
         fn new() -> Self {
             Self {
                 offset: Vector::new(0., 0.),
                 scale: 1.0,
+                state: State::default(),
                 keyboard_modifier: keyboard::Modifiers::default(),
             }
         }
@@ -681,60 +876,12 @@ mod canavs {
         fn reset_scale(&mut self) {
             self.scale = 1.0;
         }
-
-        fn apply_path_transform(&self, center: Point, path: &Path, anchor: Anchor) -> Path {
-            let offset = match anchor {
-                Anchor::None => self.offset,
-                Anchor::X => Vector::new(0., self.offset.y),
-                Anchor::Y => Vector::new(self.offset.x, 0.),
-                Anchor::Both => Vector::new(0., 0.),
-            };
-            let center = center - offset;
-            let trans_x = center.x;
-            let trans_y = center.y;
-            let scale = self.scale;
-
-            let transform = Transform2D::new(scale, 0.0, 0.0, -scale, trans_x, trans_y);
-
-            path.transform(&transform)
-        }
-
-        fn translate_point(&self, center: Point, point: impl Into<Point>, anchor: Anchor) -> Point {
-            let offset = match anchor {
-                Anchor::Both => Vector::new(0., 0.),
-                Anchor::X => Vector::new(0., self.offset.y),
-                Anchor::Y => Vector::new(self.offset.x, 0.),
-                Anchor::None => self.offset,
-            };
-            let center = center - offset;
-            let point = {
-                let point: Point = point.into();
-                Point::new(point.x * self.scale, point.y * self.scale)
-            };
-            let x = center.x + point.x;
-            let y = center.y - point.y;
-
-            Point::new(x, y)
-        }
-
-        fn apply_text_transform(&self, center: Point, text: &Text, anchor: Anchor) -> Text {
-            let position = self.translate_point(center, text.position, anchor);
-
-            Text {
-                content: text.content.clone(),
-                position,
-                size: text.size,
-                color: text.color,
-                font: text.font,
-                horizontal_alignment: text.horizontal_alignment,
-                vertical_alignment: text.vertical_alignment,
-                line_height: text.line_height,
-                shaping: text.shaping,
-            }
-        }
     }
 
-    impl Default for InfiniteState {
+    impl<State> Default for InfiniteState<State>
+    where
+        State: Default,
+    {
         fn default() -> Self {
             Self::new()
         }
@@ -828,5 +975,71 @@ mod canavs {
         }
 
         return output;
+    }
+
+    fn transform_path<State>(
+        state: &InfiniteState<State>,
+        center: Point,
+        path: &Path,
+        anchor: Anchor,
+    ) -> Path {
+        let offset = match anchor {
+            Anchor::None => state.offset,
+            Anchor::X => Vector::new(0., state.offset.y),
+            Anchor::Y => Vector::new(state.offset.x, 0.),
+            Anchor::Both => Vector::new(0., 0.),
+        };
+        let center = center - offset;
+        let trans_x = center.x;
+        let trans_y = center.y;
+        let scale = state.scale;
+
+        let transform = Transform2D::new(scale, 0.0, 0.0, -scale, trans_x, trans_y);
+
+        path.transform(&transform)
+    }
+
+    fn translate_point<State>(
+        state: &InfiniteState<State>,
+        center: Point,
+        point: impl Into<Point>,
+        anchor: Anchor,
+    ) -> Point {
+        let offset = match anchor {
+            Anchor::Both => Vector::new(0., 0.),
+            Anchor::X => Vector::new(0., state.offset.y),
+            Anchor::Y => Vector::new(state.offset.x, 0.),
+            Anchor::None => state.offset,
+        };
+        let center = center - offset;
+        let point = {
+            let point: Point = point.into();
+            Point::new(point.x * state.scale, point.y * state.scale)
+        };
+        let x = center.x + point.x;
+        let y = center.y - point.y;
+
+        Point::new(x, y)
+    }
+
+    fn transform_text<State>(
+        state: &InfiniteState<State>,
+        center: Point,
+        text: &Text,
+        anchor: Anchor,
+    ) -> Text {
+        let position = translate_point(state, center, text.position, anchor);
+
+        Text {
+            content: text.content.clone(),
+            position,
+            size: text.size,
+            color: text.color,
+            font: text.font,
+            horizontal_alignment: text.horizontal_alignment,
+            vertical_alignment: text.vertical_alignment,
+            line_height: text.line_height,
+            shaping: text.shaping,
+        }
     }
 }
