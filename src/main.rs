@@ -210,7 +210,9 @@ mod infinite {
         Renderer: iced_graphics::geometry::Renderer,
     {
         /// The internal state mutated by the [`Program`].
-        type State: Default + 'static;
+        type State: 'static;
+
+        fn create_state(&self) -> Self::State;
 
         /// Draws the state of the [`Program`], returning a bunch of [`Buffer`].
         fn draw<'a>(
@@ -692,7 +694,8 @@ mod infinite {
         }
 
         fn state(&self) -> tree::State {
-            tree::State::new(InfiniteState::<P::State>::new())
+            let state = self.program.create_state();
+            tree::State::new(InfiniteState::<P::State>::new(state))
         }
 
         fn on_event(
@@ -1166,15 +1169,12 @@ mod infinite {
         state: State,
     }
 
-    impl<State> InfiniteState<State>
-    where
-        State: Default,
-    {
-        fn new() -> Self {
+    impl<State> InfiniteState<State> {
+        fn new(state: State) -> Self {
             Self {
                 offset: Vector::new(0., 0.),
                 scale: 1.0,
-                state: State::default(),
+                state,
                 keyboard_modifier: keyboard::Modifiers::default(),
             }
         }
@@ -1190,15 +1190,6 @@ mod infinite {
 
         fn reset_scale(&mut self) {
             self.scale = 1.0;
-        }
-    }
-
-    impl<State> Default for InfiniteState<State>
-    where
-        State: Default,
-    {
-        fn default() -> Self {
-            Self::new()
         }
     }
 
