@@ -212,6 +212,26 @@ mod infinite {
         ) -> mouse::Interaction {
             mouse::Interaction::default()
         }
+
+        fn on_scroll(
+            &self,
+            _state: &mut Self::State,
+            _bounds: Rectangle,
+            _cursor: mouse::Cursor,
+            _diff: Vector,
+        ) -> Option<Message> {
+            None
+        }
+
+        fn on_zoom(
+            &self,
+            _state: &mut Self::State,
+            _bounds: Rectangle,
+            _cursor: mouse::Cursor,
+            _diff: f32,
+        ) -> Option<Message> {
+            None
+        }
     }
 
     /// Determines the degree by which points on the canvas are fixed.
@@ -654,10 +674,22 @@ mod infinite {
                         mouse::ScrollDelta::Lines { y, .. } if state.keyboard_modifier.shift() => {
                             state.scale += y;
 
+                            let msg = self.program.on_zoom(&mut state.state, bounds, cursor, y);
+
+                            if let Some(msg) = msg {
+                                shell.publish(msg);
+                            }
+
                             iced_event::Status::Captured
                         }
                         mouse::ScrollDelta::Pixels { y, .. } if state.keyboard_modifier.shift() => {
                             state.scale += y;
+                            let msg = self.program.on_zoom(&mut state.state, bounds, cursor, y);
+
+                            if let Some(msg) = msg {
+                                shell.publish(msg);
+                            }
+
                             iced_event::Status::Captured
                         }
 
@@ -670,6 +702,13 @@ mod infinite {
                             };
 
                             state.offset = state.offset - offset;
+                            let msg =
+                                self.program
+                                    .on_scroll(&mut state.state, bounds, cursor, -offset);
+
+                            if let Some(msg) = msg {
+                                shell.publish(msg);
+                            }
 
                             iced_event::Status::Captured
                         }
@@ -682,6 +721,13 @@ mod infinite {
                             } * mult;
 
                             state.offset = state.offset - offset;
+                            let msg =
+                                self.program
+                                    .on_scroll(&mut state.state, bounds, cursor, -offset);
+
+                            if let Some(msg) = msg {
+                                shell.publish(msg);
+                            }
 
                             iced_event::Status::Captured
                         }
@@ -703,6 +749,13 @@ mod infinite {
                             };
 
                             state.offset = state.offset - offset;
+                            let msg =
+                                self.program
+                                    .on_scroll(&mut state.state, bounds, cursor, -offset);
+
+                            if let Some(msg) = msg {
+                                shell.publish(msg);
+                            }
 
                             iced_event::Status::Captured
                         }
@@ -717,6 +770,14 @@ mod infinite {
                             };
                             state.offset = state.offset + offset;
 
+                            let msg =
+                                self.program
+                                    .on_scroll(&mut state.state, bounds, cursor, offset);
+
+                            if let Some(msg) = msg {
+                                shell.publish(msg);
+                            }
+
                             iced_event::Status::Captured
                         }
 
@@ -730,6 +791,14 @@ mod infinite {
                             };
                             state.offset = state.offset - offset;
 
+                            let msg =
+                                self.program
+                                    .on_scroll(&mut state.state, bounds, cursor, -offset);
+
+                            if let Some(msg) = msg {
+                                shell.publish(msg);
+                            }
+
                             iced_event::Status::Captured
                         }
                         keyboard::Key::Named(keyboard::key::Named::ArrowRight)
@@ -742,6 +811,13 @@ mod infinite {
                             };
                             state.offset = state.offset + offset;
 
+                            let msg =
+                                self.program
+                                    .on_scroll(&mut state.state, bounds, cursor, offset);
+
+                            if let Some(msg) = msg {
+                                shell.publish(msg);
+                            }
                             iced_event::Status::Captured
                         }
 
@@ -751,6 +827,12 @@ mod infinite {
                         {
                             state.scale += zoom;
 
+                            let msg = self.program.on_zoom(&mut state.state, bounds, cursor, zoom);
+
+                            if let Some(msg) = msg {
+                                shell.publish(msg);
+                            }
+
                             iced_event::Status::Captured
                         }
 
@@ -759,22 +841,65 @@ mod infinite {
                         {
                             state.scale -= zoom;
 
+                            let msg = self
+                                .program
+                                .on_zoom(&mut state.state, bounds, cursor, -zoom);
+
+                            if let Some(msg) = msg {
+                                shell.publish(msg);
+                            }
+
                             iced_event::Status::Captured
                         }
 
                         // Resets
                         keyboard::Key::Named(keyboard::key::Named::Home) if modifiers.command() => {
+                            let scale = 1.0 - state.scale;
+                            let offset = Vector::new(0., 0.) - state.offset;
+
                             state.reset_all();
+
+                            if let Some(msg) =
+                                self.program
+                                    .on_scroll(&mut state.state, bounds, cursor, offset)
+                            {
+                                shell.publish(msg);
+                            }
+
+                            if let Some(msg) =
+                                self.program
+                                    .on_zoom(&mut state.state, bounds, cursor, scale)
+                            {
+                                shell.publish(msg);
+                            }
+
                             iced_event::Status::Captured
                         }
 
                         keyboard::Key::Named(keyboard::key::Named::Home) if modifiers.shift() => {
+                            let diff = 1.0 - state.scale;
                             state.reset_scale();
+
+                            let msg = self.program.on_zoom(&mut state.state, bounds, cursor, diff);
+
+                            if let Some(msg) = msg {
+                                shell.publish(msg);
+                            }
                             iced_event::Status::Captured
                         }
 
                         keyboard::Key::Named(keyboard::key::Named::Home) => {
+                            let diff = Vector::new(0., 0.) - state.offset;
                             state.reset_offset();
+
+                            let msg =
+                                self.program
+                                    .on_scroll(&mut state.state, bounds, cursor, diff);
+
+                            if let Some(msg) = msg {
+                                shell.publish(msg);
+                            }
+
                             iced_event::Status::Captured
                         }
 
