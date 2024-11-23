@@ -3,7 +3,7 @@ use iced::{
     application, color,
     widget::{
         canvas::{Path, Text},
-        center, text,
+        center,
     },
     Element, Length, Renderer, Theme,
 };
@@ -53,11 +53,13 @@ impl<Message> Program<Message, Theme, Renderer> for Graph {
         &self,
         _state: &Self::State,
         _theme: &Theme,
-        _bounds: iced::Rectangle,
+        bounds: iced::Rectangle,
         _cursor: iced::mouse::Cursor,
+        center: iced::Point,
     ) -> Vec<Buffer<'a>> {
         let color2 = color!(128, 0, 128);
         let color = color!(0, 128, 128);
+        let color1 = color!(102, 51, 153);
 
         let mut buffer = Buffer::new();
 
@@ -69,13 +71,35 @@ impl<Message> Program<Message, Theme, Renderer> for Graph {
         });
 
         {
-            let path = Path::circle((15., 45.).into(), 5.0.into());
+            let path = Path::circle((0., 0.).into(), 5.0.into());
             buffer.fill_anchored(path, color2, Anchor::None);
         }
 
         buffer.fill_rounded_rectangle((120.0, 120.), (150., 100.), 10., color);
 
-        vec![buffer]
+        let axis = {
+            use iced::widget::canvas::Stroke;
+
+            let mut buffer = Buffer::new();
+
+            let x_axis = {
+                let x = bounds.width / 2.0;
+                Path::line((-center.x + x, 0.).into(), (-center.x - x, 0.).into())
+            };
+
+            buffer.stroke(x_axis, Stroke::default().with_color(color1).with_width(2.0));
+
+            let y_axis = {
+                let y = bounds.height / 2.0;
+                Path::line((0., center.y + y).into(), (0., center.y - y).into())
+            };
+
+            buffer.stroke(y_axis, Stroke::default().with_color(color1).with_width(2.0));
+
+            buffer
+        };
+
+        vec![buffer, axis]
     }
 }
 
@@ -192,6 +216,7 @@ mod infinite {
             theme: &Theme,
             bounds: Rectangle,
             cursor: mouse::Cursor,
+            center: Point,
         ) -> Vec<Buffer<'a>>;
 
         fn update(
@@ -983,7 +1008,13 @@ mod infinite {
                 let mut frame = Frame::new(renderer, bounds.size());
                 let center = frame.center();
 
-                let buffers = self.program.draw(&state.state, theme, bounds, cursor);
+                let buffers = self.program.draw(
+                    &state.state,
+                    theme,
+                    bounds,
+                    cursor,
+                    Point::ORIGIN - state.offset,
+                );
 
                 for buffer in buffers {
                     buffer.draw(&mut frame, state, center);
@@ -1064,31 +1095,6 @@ mod infinite {
 
                     frame.fill_text(text);
                 }
-
-                let center = center - state.offset;
-
-                let color1 = color!(128, 0, 128);
-                //let color = color!(0, 128, 128);
-
-                let x_axis = {
-                    let y = center.y;
-                    Path::line((0., y).into(), (bounds.width, y).into())
-                };
-
-                frame.stroke(
-                    &x_axis,
-                    Stroke::default().with_color(color1).with_width(2.0),
-                );
-
-                let y_axis = {
-                    let x = center.x;
-                    Path::line((x, 0.).into(), (x, bounds.height).into())
-                };
-
-                frame.stroke(
-                    &y_axis,
-                    Stroke::default().with_color(color1).with_width(2.0),
-                );
 
                 let geoms = frame.into_geometry();
 
