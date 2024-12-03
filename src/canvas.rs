@@ -1,27 +1,30 @@
-//! A widget for an infinite 2D cartesian canvas
+//! A widget for an infinite 2D cartesian canvas.
 //!
 //! All points on the [`Infinite`] are considered as cartesian co-ordinates
-//! with the origin at co-ord (0, 0)
+//! with the origin at co-ord (0, 0).
 //!
 //! Functionality:
+//!
 //! All functionality requires the [`Infinite`] to be hovered on by the
 //! cursor. These are currently implemented:
-//!     - Scrolling: Mouse scroll or Cmd(Ctrl) + arrow direction
-//!     - Zoom: Shift + Mouse scroll or Shift + arrow direction
-//!     - Reset Zoom: Shift + Home key
-//!     - Reset Scroll: Home key
-//!     - Reset Scroll and Zoom: Cmd(Ctrl) + Home key
+//!
+//! - Scrolling: Mouse scroll or Cmd(Ctrl) + arrow direction.
+//! - Zoom: Shift + Mouse scroll or Shift + arrow direction.
+//! - Reset Zoom: Shift + Home key.
+//! - Reset Scroll: Home key.
+//! - Reset Scroll and Zoom: Cmd(Ctrl) + Home key.
 //!
 //! Note:
-//!     - Text cannot be zoomed (scaled up or down).
-//!     - Items on the canvas can be anchored on a single, both and no axis.
-//!       An anchored Item does not move when scrolled on the anchoring axis.
-//!     - The Scrolling direction for the [`Infinite`] can be set using
+//!
+//! - Text cannot be zoomed (scaled up or down).
+//! - Items on the canvas can be anchored on a single, both and no axis. An
+//!   anchored Item does not move when scrolled on the anchoring axis.
+//! - The Scrolling direction for the [`Infinite`] can be set using
 //!       [`ScrollDirection`].
-//!     - Like the regualar Iced canvas, Items on an [`Infinite`] benefit
-//!       from antialiasing being enabled.
-//!     - Unlike the regular Iced canvas, unless otherwise stated, shapes
-//!       are drawn with respect to their bottom-left point
+//! - Like the regualar Iced canvas, Items on an [`Infinite`] benefit
+//!   from antialiasing being enabled.
+//! - Unlike the regular Iced canvas, unless otherwise stated, shapes
+//!   are drawn with respect to their bottom-left point.
 
 use std::marker::PhantomData;
 
@@ -40,6 +43,7 @@ use style::*;
 
 const DEFAULT_BACKGROUND: Background = Background::Color(color!(203, 213, 240));
 
+/// Handle [`Infinite`] canvas event.
 pub mod event {
     /// The status of an [`Event`] after being processed.
     #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -74,7 +78,7 @@ pub mod event {
     }
 
     #[derive(Debug, Clone, PartialEq)]
-    /// An [`Infinite`] canvas event.
+    /// An canvas event.
     pub enum Event {
         /// A mouse event.
         Mouse(iced::mouse::Event),
@@ -105,6 +109,7 @@ where
     /// The internal state mutated by the [`Program`].
     type State: 'static;
 
+    /// Returns the initial state of the [`Program`].
     fn create_state(&self) -> Self::State;
 
     /// Draws the state of the [`Program`], returning a bunch of [`Buffer`].
@@ -1068,6 +1073,7 @@ impl<State> InfiniteState<State> {
     }
 }
 
+/// Style an [`Infinite`] canvas.
 pub mod style {
     use super::*;
 
