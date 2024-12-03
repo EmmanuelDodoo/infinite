@@ -261,7 +261,7 @@ impl GraphState {
 impl<Message> Program<Message, Theme, Renderer> for Graph {
     type State = GraphState;
 
-    fn create_state(&self) -> Self::State {
+    fn init_state(&self) -> Self::State {
         GraphState {
             x_scale: Scale::new(10.0),
             kx: 5.0,
@@ -409,6 +409,7 @@ impl<Message> Program<Message, Theme, Renderer> for Graph {
         state: &mut Self::State,
         bounds: iced::Rectangle,
         _cursor: iced::mouse::Cursor,
+        _scroll: iced::Vector,
         diff: iced::Vector,
     ) -> Option<Message> {
         let mut scroll = state.scroll + diff;
@@ -431,6 +432,7 @@ impl<Message> Program<Message, Theme, Renderer> for Graph {
         state: &mut Self::State,
         _bounds: iced::Rectangle,
         _cursor: iced::mouse::Cursor,
+        _zoom: f32,
         diff: f32,
     ) -> Option<Message> {
         let zoom = state.temp + diff;

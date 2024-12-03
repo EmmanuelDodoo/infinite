@@ -110,7 +110,7 @@ where
     type State: 'static;
 
     /// Returns the initial state of the [`Program`].
-    fn create_state(&self) -> Self::State;
+    fn init_state(&self) -> Self::State;
 
     /// Draws the state of the [`Program`], returning a bunch of [`Buffer`].
     fn draw<'a>(
@@ -152,7 +152,11 @@ where
 
     /// Updates the state of the [`Program`] whenever a scroll occurs.
     ///
-    /// This method can optionally return a Message to notify an application of any meaningful interactions.
+    /// The current scroll of the canvas is provided as `scroll` and the change
+    /// is also provided as `diff`.
+    ///
+    /// An optional Message can be returned to notify an application of any
+    /// meaningful interactions.
     ///
     /// By default, this method does and returns nothing. source
     fn on_scroll(
@@ -160,6 +164,7 @@ where
         _state: &mut Self::State,
         _bounds: Rectangle,
         _cursor: mouse::Cursor,
+        _scroll: Vector,
         _diff: Vector,
     ) -> Option<Message> {
         None
@@ -167,7 +172,11 @@ where
 
     /// Updates the state of the [`Program`] whenever a zoom occurs.
     ///
-    /// This method can optionally return a Message to notify an application of any meaningful interactions.
+    /// The current zoom of the canvas is provided as `zoom` and the change
+    /// is also provided as `diff`.
+    ///
+    /// An optional Message can be returned to notify an application of any
+    /// meaningful interactions.
     ///
     /// By default, this method does and returns nothing. source
     fn on_zoom(
@@ -175,6 +184,7 @@ where
         _state: &mut Self::State,
         _bounds: Rectangle,
         _cursor: mouse::Cursor,
+        _zoom: f32,
         _diff: f32,
     ) -> Option<Message> {
         None
@@ -587,7 +597,7 @@ where
     }
 
     fn state(&self) -> tree::State {
-        let state = self.program.create_state();
+        let state = self.program.init_state();
         tree::State::new(InfiniteState::<P::State>::new(state))
     }
 
@@ -638,7 +648,9 @@ where
                     mouse::ScrollDelta::Lines { y, .. } if state.keyboard_modifier.shift() => {
                         state.scale += y;
 
-                        let msg = self.program.on_zoom(&mut state.state, bounds, cursor, y);
+                        let msg =
+                            self.program
+                                .on_zoom(&mut state.state, bounds, cursor, state.scale, y);
 
                         if let Some(msg) = msg {
                             shell.publish(msg);
@@ -648,7 +660,9 @@ where
                     }
                     mouse::ScrollDelta::Pixels { y, .. } if state.keyboard_modifier.shift() => {
                         state.scale += y;
-                        let msg = self.program.on_zoom(&mut state.state, bounds, cursor, y);
+                        let msg =
+                            self.program
+                                .on_zoom(&mut state.state, bounds, cursor, state.scale, y);
 
                         if let Some(msg) = msg {
                             shell.publish(msg);
@@ -666,9 +680,13 @@ where
                         };
 
                         state.offset = state.offset - offset;
-                        let msg = self
-                            .program
-                            .on_scroll(&mut state.state, bounds, cursor, -offset);
+                        let msg = self.program.on_scroll(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            state.offset,
+                            -offset,
+                        );
 
                         if let Some(msg) = msg {
                             shell.publish(msg);
@@ -685,9 +703,13 @@ where
                         } * mult;
 
                         state.offset = state.offset - offset;
-                        let msg = self
-                            .program
-                            .on_scroll(&mut state.state, bounds, cursor, -offset);
+                        let msg = self.program.on_scroll(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            state.offset,
+                            -offset,
+                        );
 
                         if let Some(msg) = msg {
                             shell.publish(msg);
@@ -711,9 +733,13 @@ where
                         };
 
                         state.offset = state.offset - offset;
-                        let msg = self
-                            .program
-                            .on_scroll(&mut state.state, bounds, cursor, -offset);
+                        let msg = self.program.on_scroll(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            state.offset,
+                            -offset,
+                        );
 
                         if let Some(msg) = msg {
                             shell.publish(msg);
@@ -732,9 +758,13 @@ where
                         };
                         state.offset = state.offset + offset;
 
-                        let msg = self
-                            .program
-                            .on_scroll(&mut state.state, bounds, cursor, offset);
+                        let msg = self.program.on_scroll(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            state.offset,
+                            offset,
+                        );
 
                         if let Some(msg) = msg {
                             shell.publish(msg);
@@ -753,9 +783,13 @@ where
                         };
                         state.offset = state.offset - offset;
 
-                        let msg = self
-                            .program
-                            .on_scroll(&mut state.state, bounds, cursor, -offset);
+                        let msg = self.program.on_scroll(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            state.offset,
+                            -offset,
+                        );
 
                         if let Some(msg) = msg {
                             shell.publish(msg);
@@ -773,9 +807,13 @@ where
                         };
                         state.offset = state.offset + offset;
 
-                        let msg = self
-                            .program
-                            .on_scroll(&mut state.state, bounds, cursor, offset);
+                        let msg = self.program.on_scroll(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            state.offset,
+                            offset,
+                        );
 
                         if let Some(msg) = msg {
                             shell.publish(msg);
@@ -787,7 +825,13 @@ where
                     keyboard::Key::Named(keyboard::key::Named::ArrowUp) if modifiers.shift() => {
                         state.scale += zoom;
 
-                        let msg = self.program.on_zoom(&mut state.state, bounds, cursor, zoom);
+                        let msg = self.program.on_zoom(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            state.scale,
+                            zoom,
+                        );
 
                         if let Some(msg) = msg {
                             shell.publish(msg);
@@ -799,9 +843,13 @@ where
                     keyboard::Key::Named(keyboard::key::Named::ArrowDown) if modifiers.shift() => {
                         state.scale -= zoom;
 
-                        let msg = self
-                            .program
-                            .on_zoom(&mut state.state, bounds, cursor, -zoom);
+                        let msg = self.program.on_zoom(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            state.scale,
+                            -zoom,
+                        );
 
                         if let Some(msg) = msg {
                             shell.publish(msg);
@@ -817,17 +865,23 @@ where
 
                         state.reset_all();
 
-                        if let Some(msg) =
-                            self.program
-                                .on_scroll(&mut state.state, bounds, cursor, offset)
-                        {
+                        if let Some(msg) = self.program.on_scroll(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            state.offset,
+                            offset,
+                        ) {
                             shell.publish(msg);
                         }
 
-                        if let Some(msg) =
-                            self.program
-                                .on_zoom(&mut state.state, bounds, cursor, scale)
-                        {
+                        if let Some(msg) = self.program.on_zoom(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            state.scale,
+                            scale,
+                        ) {
                             shell.publish(msg);
                         }
 
@@ -838,7 +892,13 @@ where
                         let diff = 1.0 - state.scale;
                         state.reset_scale();
 
-                        let msg = self.program.on_zoom(&mut state.state, bounds, cursor, diff);
+                        let msg = self.program.on_zoom(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            state.scale,
+                            diff,
+                        );
 
                         if let Some(msg) = msg {
                             shell.publish(msg);
@@ -850,9 +910,13 @@ where
                         let diff = Vector::new(0., 0.) - state.offset;
                         state.reset_offset();
 
-                        let msg = self
-                            .program
-                            .on_scroll(&mut state.state, bounds, cursor, diff);
+                        let msg = self.program.on_scroll(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            state.offset,
+                            diff,
+                        );
 
                         if let Some(msg) = msg {
                             shell.publish(msg);
