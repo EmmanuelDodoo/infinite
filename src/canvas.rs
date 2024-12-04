@@ -29,7 +29,7 @@
 use std::marker::PhantomData;
 
 use iced::{
-    advanced::{self, layout, widget::tree, Widget},
+    advanced::{self, layout, mouse::Cursor, widget::tree, Widget},
     border::Radius,
     color, event as iced_event, keyboard, mouse,
     widget::canvas::{path::lyon_path::geom::euclid::Transform2D, Fill, Frame, Path, Stroke, Text},
@@ -112,13 +112,17 @@ where
     /// Returns the initial state of the [`Program`].
     fn init_state(&self) -> Self::State;
 
-    /// Draws the state of the [`Program`], returning a bunch of [`Buffer`].
+    /// Draws the state of the [`Program`], returning a bunch of [`Buffer`]s.
+    ///
+    /// A cursor whose position is translated to fit the [`Infinite`] coordinate
+    /// system is provided as `infinite_cursor`.
     fn draw<'a>(
         &self,
         state: &Self::State,
         theme: &Theme,
         bounds: Rectangle,
         cursor: mouse::Cursor,
+        infinite_cursor: mouse::Cursor,
         center: Point,
     ) -> Vec<Buffer<'a>>;
 
@@ -126,6 +130,9 @@ where
     ///
     /// Captured [`Event`]s do not trigger a scroll or zoom on the
     /// [`Infinite`].
+    ///
+    /// A cursor whose position is translated to fit the [`Infinite`] coordinate
+    /// system is provided as `infinite_cursor`.
     ///
     /// This method can optionally return a Message to notify an application of any meaningful interactions.
     ///
@@ -136,16 +143,21 @@ where
         _event: Event,
         _bounds: Rectangle,
         _cursor: mouse::Cursor,
+        _infinite_cursor: mouse::Cursor,
     ) -> (event::Status, Option<Message>) {
         (event::Status::Ignored, None)
     }
 
     /// Returns the current mouse interaction of the [`Program`].
+    ///
+    /// A cursor whose position is translated to fit the [`Infinite`] coordinate
+    /// system is provided as `infinite_cursor`.
     fn mouse_interaction(
         &self,
         _state: &Self::State,
         _bounds: Rectangle,
         _cursor: mouse::Cursor,
+        _infinite_cursor: mouse::Cursor,
     ) -> mouse::Interaction {
         mouse::Interaction::default()
     }
@@ -154,6 +166,9 @@ where
     ///
     /// The current scroll of the canvas is provided as `scroll` and the change
     /// is also provided as `diff`.
+    ///
+    /// A cursor whose position is translated to fit the [`Infinite`] coordinate
+    /// system is provided as `infinite_cursor`.
     ///
     /// An optional Message can be returned to notify an application of any
     /// meaningful interactions.
@@ -164,6 +179,7 @@ where
         _state: &mut Self::State,
         _bounds: Rectangle,
         _cursor: mouse::Cursor,
+        _infinite_cursor: mouse::Cursor,
         _scroll: Vector,
         _diff: Vector,
     ) -> Option<Message> {
@@ -175,6 +191,9 @@ where
     /// The current zoom of the canvas is provided as `zoom` and the change
     /// is also provided as `diff`.
     ///
+    /// A cursor whose position is translated to fit the [`Infinite`] coordinate
+    /// system is provided as `infinite_cursor`.
+    ///
     /// An optional Message can be returned to notify an application of any
     /// meaningful interactions.
     ///
@@ -184,6 +203,7 @@ where
         _state: &mut Self::State,
         _bounds: Rectangle,
         _cursor: mouse::Cursor,
+        _infinite_cursor: mouse::Cursor,
         _zoom: f32,
         _diff: f32,
     ) -> Option<Message> {
@@ -622,9 +642,12 @@ where
         };
 
         if let Some(canvas_event) = canvas_event {
-            let state = &mut state.state.downcast_mut::<InfiniteState<P::State>>().state;
+            let state = state.state.downcast_mut::<InfiniteState<P::State>>();
+            let (cursor, infinite) = get_cursors(cursor, bounds, state.offset);
 
-            let (status, message) = self.program.update(state, canvas_event, bounds, cursor);
+            let (status, message) =
+                self.program
+                    .update(&mut state.state, canvas_event, bounds, cursor, infinite);
 
             if let Some(message) = message {
                 shell.publish(message);
@@ -642,15 +665,21 @@ where
         match event {
             iced::Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
                 let state = state.state.downcast_mut::<InfiniteState<P::State>>();
+                let (cursor, infinite) = get_cursors(cursor, bounds, state.offset);
 
                 match delta {
                     // Zoom
                     mouse::ScrollDelta::Lines { y, .. } if state.keyboard_modifier.shift() => {
                         state.scale += y;
 
-                        let msg =
-                            self.program
-                                .on_zoom(&mut state.state, bounds, cursor, state.scale, y);
+                        let msg = self.program.on_zoom(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            infinite,
+                            state.scale,
+                            y,
+                        );
 
                         if let Some(msg) = msg {
                             shell.publish(msg);
@@ -660,9 +689,14 @@ where
                     }
                     mouse::ScrollDelta::Pixels { y, .. } if state.keyboard_modifier.shift() => {
                         state.scale += y;
-                        let msg =
-                            self.program
-                                .on_zoom(&mut state.state, bounds, cursor, state.scale, y);
+                        let msg = self.program.on_zoom(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            infinite,
+                            state.scale,
+                            y,
+                        );
 
                         if let Some(msg) = msg {
                             shell.publish(msg);
@@ -684,6 +718,7 @@ where
                             &mut state.state,
                             bounds,
                             cursor,
+                            infinite,
                             state.offset,
                             -offset,
                         );
@@ -707,6 +742,7 @@ where
                             &mut state.state,
                             bounds,
                             cursor,
+                            infinite,
                             state.offset,
                             -offset,
                         );
@@ -721,6 +757,7 @@ where
             }
             iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                 let state = state.state.downcast_mut::<InfiniteState<P::State>>();
+                let (cursor, infinite) = get_cursors(cursor, bounds, state.offset);
                 let translation = 25.0;
                 let zoom = 0.1;
                 match key {
@@ -737,6 +774,7 @@ where
                             &mut state.state,
                             bounds,
                             cursor,
+                            infinite,
                             state.offset,
                             -offset,
                         );
@@ -762,6 +800,7 @@ where
                             &mut state.state,
                             bounds,
                             cursor,
+                            infinite,
                             state.offset,
                             offset,
                         );
@@ -787,6 +826,7 @@ where
                             &mut state.state,
                             bounds,
                             cursor,
+                            infinite,
                             state.offset,
                             -offset,
                         );
@@ -811,6 +851,7 @@ where
                             &mut state.state,
                             bounds,
                             cursor,
+                            infinite,
                             state.offset,
                             offset,
                         );
@@ -829,6 +870,7 @@ where
                             &mut state.state,
                             bounds,
                             cursor,
+                            infinite,
                             state.scale,
                             zoom,
                         );
@@ -847,6 +889,7 @@ where
                             &mut state.state,
                             bounds,
                             cursor,
+                            infinite,
                             state.scale,
                             -zoom,
                         );
@@ -869,6 +912,7 @@ where
                             &mut state.state,
                             bounds,
                             cursor,
+                            infinite,
                             state.offset,
                             offset,
                         ) {
@@ -879,6 +923,7 @@ where
                             &mut state.state,
                             bounds,
                             cursor,
+                            infinite,
                             state.scale,
                             scale,
                         ) {
@@ -896,6 +941,7 @@ where
                             &mut state.state,
                             bounds,
                             cursor,
+                            infinite,
                             state.scale,
                             diff,
                         );
@@ -914,6 +960,7 @@ where
                             &mut state.state,
                             bounds,
                             cursor,
+                            infinite,
                             state.offset,
                             diff,
                         );
@@ -949,9 +996,11 @@ where
         _renderer: &Renderer,
     ) -> advanced::mouse::Interaction {
         let bounds = layout.bounds();
-        let state = &state.state.downcast_ref::<InfiniteState<P::State>>().state;
+        let state = &state.state.downcast_ref::<InfiniteState<P::State>>();
+        let (cursor, infinite) = get_cursors(cursor, bounds, state.offset);
 
-        self.program.mouse_interaction(&state, bounds, cursor)
+        self.program
+            .mouse_interaction(&state.state, bounds, cursor, infinite)
     }
 
     fn layout(
@@ -1005,11 +1054,14 @@ where
             let mut frame = Frame::new(renderer, bounds.size());
             let center = frame.center();
 
+            let (cursor, infinite) = get_cursors(cursor, bounds, state.offset);
+
             let buffers = self.program.draw(
                 &state.state,
                 theme,
                 bounds,
                 cursor,
+                infinite,
                 Point::ORIGIN - state.offset,
             );
 
@@ -1061,6 +1113,7 @@ where
                 // , : 9
                 // total:
                 // 16 + (x_num + x_neg) + 12 + 9 + 16 + (y_num + y_neg) + 12
+                // 25 because dp spacing wasn't enough at 12
 
                 let x_num = digits(x.abs() as u32) * 9;
                 let x_neg = if x < 0. { 5. } else { 0. };
@@ -1068,7 +1121,7 @@ where
                 let y_neg = if y < 0. { 5. } else { 0. };
 
                 let digits =
-                    16. + (x_num as f32) + x_neg + 12. + 9. + 16. + (y_num as f32) + y_neg + 12.;
+                    16. + (x_num as f32) + x_neg + 25. + 9. + 16. + (y_num as f32) + y_neg + 25.;
                 let padding = 12.5;
 
                 let rect =
@@ -1221,6 +1274,21 @@ pub mod style {
             details_border_radius: 5.into(),
             details_text,
         }
+    }
+}
+
+/// Returns a pair of [`Cursor`]s with the second [`Cursor`]'s point translated
+/// to fit within the [`Infinite`]'s coordinate system.
+fn get_cursors(cursor: Cursor, bounds: Rectangle, offset: Vector) -> (Cursor, Cursor) {
+    match cursor {
+        Cursor::Available(point) => {
+            let point = bounds.center() - point;
+            let point = point - offset;
+            let point = Point::new(-point.x, point.y);
+
+            (cursor, Cursor::Available(point))
+        }
+        Cursor::Unavailable => (cursor, cursor),
     }
 }
 
