@@ -278,6 +278,7 @@ impl<Message> Program<Message, Theme, Renderer> for Graph {
         theme: &Theme,
         bounds: iced::Rectangle,
         _cursor: iced::mouse::Cursor,
+        _infinite_cursor: iced::mouse::Cursor,
         center: iced::Point,
     ) -> Vec<Buffer<'a>> {
         use iced::widget::canvas::Stroke;
@@ -409,6 +410,7 @@ impl<Message> Program<Message, Theme, Renderer> for Graph {
         state: &mut Self::State,
         bounds: iced::Rectangle,
         _cursor: iced::mouse::Cursor,
+        _infinite_cursor: iced::mouse::Cursor,
         _scroll: iced::Vector,
         diff: iced::Vector,
     ) -> Option<Message> {
@@ -432,6 +434,7 @@ impl<Message> Program<Message, Theme, Renderer> for Graph {
         state: &mut Self::State,
         _bounds: iced::Rectangle,
         _cursor: iced::mouse::Cursor,
+        _infinite_cursor: iced::mouse::Cursor,
         _zoom: f32,
         diff: f32,
     ) -> Option<Message> {

@@ -10,3 +10,7 @@ iced_graphics = {version = "0.13", features = ["geometry"]}
 [[example]]
 name = "graph"
 path = "examples/graph.rs"
+
+[[example]]
+name = "paint"
+path = "examples/paint/paint.rs"
