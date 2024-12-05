@@ -112,6 +112,19 @@ where
     /// Returns the initial state of the [`Program`].
     fn init_state(&self) -> Self::State;
 
+    /// Returns the scroll the [`Infinite`] starts with.
+    ///
+    /// Scrolling up in the Y direction pulls the canvas down, thus the Y vector
+    /// component is negative.
+    fn init_scroll(&self) -> iced::Vector {
+        Vector::new(0., 0.)
+    }
+
+    /// Returns the zoom the [`Infinite`] starts with.
+    fn init_zoom(&self) -> f32 {
+        0.0
+    }
+
     /// Draws the state of the [`Program`], returning a bunch of [`Buffer`]s.
     ///
     /// A cursor whose position is translated to fit the [`Infinite`] coordinate
@@ -618,7 +631,12 @@ where
 
     fn state(&self) -> tree::State {
         let state = self.program.init_state();
-        tree::State::new(InfiniteState::<P::State>::new(state))
+        let mut state = InfiniteState::<P::State>::new(state);
+
+        state.offset = self.program.init_scroll();
+        state.scale = self.program.init_zoom();
+
+        tree::State::new(state)
     }
 
     fn on_event(
