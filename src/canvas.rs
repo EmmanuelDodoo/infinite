@@ -122,7 +122,7 @@ where
 
     /// Returns the zoom the [`Infinite`] starts with.
     fn init_zoom(&self) -> f32 {
-        0.0
+        1.0
     }
 
     /// Draws the state of the [`Program`], returning a bunch of [`Buffer`]s.
