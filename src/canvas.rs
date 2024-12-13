@@ -26,6 +26,7 @@
 //! - Unlike the regular Iced canvas, unless otherwise stated, shapes
 //!   are drawn with respect to their bottom-left point.
 
+use std::f32::consts::E;
 use std::marker::PhantomData;
 
 use iced::{
@@ -42,6 +43,7 @@ use event::Event;
 use style::*;
 
 const DEFAULT_BACKGROUND: Background = Background::Color(color!(203, 213, 240));
+const SCALE_STEP: f32 = 0.1;
 
 /// Handle [`Infinite`] canvas event.
 pub mod event {
@@ -122,7 +124,7 @@ where
 
     /// Returns the zoom the [`Infinite`] starts with.
     fn init_zoom(&self) -> f32 {
-        1.0
+        0.0
     }
 
     /// Draws the state of the [`Program`], returning a bunch of [`Buffer`]s.
@@ -676,7 +678,7 @@ where
         let mut state = InfiniteState::<P::State>::new(state);
 
         state.offset = self.program.init_scroll();
-        state.scale = self.program.init_zoom();
+        state.set_scale_level(self.program.init_zoom());
 
         tree::State::new(state)
     }
@@ -730,14 +732,14 @@ where
                 match delta {
                     // Zoom
                     mouse::ScrollDelta::Lines { y, .. } if state.keyboard_modifier.shift() => {
-                        state.scale += y;
+                        state.add_level(y);
 
                         let msg = self.program.on_zoom(
                             &mut state.state,
                             bounds,
                             cursor,
                             infinite,
-                            state.scale,
+                            state.scale_level + 1.0,
                             y,
                         );
 
@@ -748,13 +750,13 @@ where
                         iced_event::Status::Captured
                     }
                     mouse::ScrollDelta::Pixels { y, .. } if state.keyboard_modifier.shift() => {
-                        state.scale += y;
+                        state.add_level(y);
                         let msg = self.program.on_zoom(
                             &mut state.state,
                             bounds,
                             cursor,
                             infinite,
-                            state.scale,
+                            state.scale_level + 1.0,
                             y,
                         );
 
@@ -819,7 +821,7 @@ where
                 let state = state.state.downcast_mut::<InfiniteState<P::State>>();
                 let (cursor, infinite) = get_cursors(cursor, bounds, state.offset);
                 let translation = 25.0;
-                let zoom = 0.1;
+                let zoom = SCALE_STEP;
                 match key {
                     // Translations
                     keyboard::Key::Named(keyboard::key::Named::ArrowUp) if modifiers.command() => {
@@ -924,14 +926,14 @@ where
 
                     // Zoom
                     keyboard::Key::Named(keyboard::key::Named::ArrowUp) if modifiers.shift() => {
-                        state.scale += zoom;
+                        state.add_level(zoom);
 
                         let msg = self.program.on_zoom(
                             &mut state.state,
                             bounds,
                             cursor,
                             infinite,
-                            state.scale,
+                            state.scale_level + 1.0,
                             zoom,
                         );
 
@@ -943,14 +945,14 @@ where
                     }
 
                     keyboard::Key::Named(keyboard::key::Named::ArrowDown) if modifiers.shift() => {
-                        state.scale -= zoom;
+                        state.add_level(-zoom);
 
                         let msg = self.program.on_zoom(
                             &mut state.state,
                             bounds,
                             cursor,
                             infinite,
-                            state.scale,
+                            state.scale_level + 1.0,
                             -zoom,
                         );
 
@@ -1018,7 +1020,7 @@ where
                             bounds,
                             cursor,
                             infinite,
-                            init
+                            init,
                         );
 
                         if let Some(msg) = msg {
@@ -1138,13 +1140,13 @@ where
                 buffer.draw(&mut frame, state, center);
             }
 
-            if state.scale != 1.0 {
+            if state.scale_level != 0.0 {
                 let pos = (bounds.width * 0.9, bounds.height * 0.95).into();
                 let background = style.details_background;
                 let radius = style.details_border_radius;
                 let color = style.details_text;
 
-                let scale = state.scale * 100.;
+                let scale = (state.scale_level + 1.0) * 100.;
                 let digs = digits(scale.abs() as u32) * 11;
                 let neg = if scale < 0. { 5. } else { 0. };
                 let digits = neg + (digs as f32) + 10.;
@@ -1228,8 +1230,10 @@ where
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct InfiniteState<State> {
     offset: Vector,
+    scale_level: f32,
     scale: f32,
     keyboard_modifier: keyboard::Modifiers,
     state: State,
@@ -1237,12 +1241,26 @@ struct InfiniteState<State> {
 
 impl<State> InfiniteState<State> {
     fn new(state: State) -> Self {
+        let scale_level = 0.0;
+        let scale = E.powf(scale_level);
         Self {
             offset: Vector::new(0., 0.),
-            scale: 1.0,
+            scale_level,
             state,
+            scale,
             keyboard_modifier: keyboard::Modifiers::default(),
         }
+    }
+
+    /// Adds to scale level
+    fn add_level(&mut self, diff: f32) {
+        self.scale_level += diff;
+        self.scale = E.powf(self.scale_level);
+    }
+
+    fn set_scale_level(&mut self, level: f32) {
+        self.scale_level = level;
+        self.scale = E.powf(self.scale_level);
     }
 
     fn reset_all(&mut self, offset: Vector, scale: f32) {
@@ -1255,7 +1273,8 @@ impl<State> InfiniteState<State> {
     }
 
     fn reset_scale(&mut self, init: f32) {
-        self.scale = init;
+        self.scale_level = init;
+        self.scale = E.powf(self.scale_level);
     }
 }
 
@@ -1429,7 +1448,10 @@ fn transform_text<State>(
     text: &Text,
     anchor: Anchor,
 ) -> Text {
+    //dbg!(&text.content);
+    //dbg!(text.position);
     let position = translate_point(state, center, text.position, anchor);
+    //dbg!(position);
 
     Text {
         content: text.content.clone(),
