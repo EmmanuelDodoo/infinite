@@ -222,6 +222,48 @@ where
     ) -> Option<Message> {
         None
     }
+
+    /// Updates the state of the [`Program`] when the scroll is reset to the
+    /// starting value.
+    ///
+    /// A cursor whose position is translated to fit the [`Infinite`] coordinate
+    /// system is provided as `infinite_cursor`.
+    ///
+    /// An optional Message can be returned to notify an application of any
+    /// meaningful interactions.
+    ///
+    /// By default, this method does and returns nothing. source
+    fn on_scroll_reset(
+        &self,
+        _state: &mut Self::State,
+        _bounds: Rectangle,
+        _cursor: mouse::Cursor,
+        _infinite_cursor: mouse::Cursor,
+        _scroll: Vector,
+    ) -> Option<Message> {
+        None
+    }
+
+    /// Updates the state of the [`Program`] when the zoom is reset to the
+    /// starting value.
+    ///
+    /// A cursor whose position is translated to fit the [`Infinite`] coordinate
+    /// system is provided as `infinite_cursor`.
+    ///
+    /// An optional Message can be returned to notify an application of any
+    /// meaningful interactions.
+    ///
+    /// By default, this method does and returns nothing. source
+    fn on_zoom_reset(
+        &self,
+        _state: &mut Self::State,
+        _bounds: Rectangle,
+        _cursor: mouse::Cursor,
+        _infinite_cursor: mouse::Cursor,
+        _zoom: f32,
+    ) -> Option<Message> {
+        None
+    }
 }
 
 /// Determines the degree by which points on the canvas are fixed.
@@ -577,8 +619,8 @@ where
             height: Length::Fixed(Self::DEFAULT_SIZE),
             direction: ScrollDirection::default(),
             program,
-            _message: PhantomData::default(),
-            _renderer: PhantomData::default(),
+            _message: PhantomData,
+            _renderer: PhantomData,
             style: Theme::default(),
         }
     }
@@ -921,29 +963,27 @@ where
 
                     // Resets
                     keyboard::Key::Named(keyboard::key::Named::Home) if modifiers.command() => {
-                        let scale = 1.0 - state.scale;
-                        let offset = Vector::new(0., 0.) - state.offset;
+                        let init_offset = self.program.init_scroll();
+                        let init_scale = self.program.init_zoom();
 
-                        state.reset_all();
+                        state.reset_all(init_offset, init_scale);
 
-                        if let Some(msg) = self.program.on_scroll(
+                        if let Some(msg) = self.program.on_scroll_reset(
                             &mut state.state,
                             bounds,
                             cursor,
                             infinite,
-                            state.offset,
-                            offset,
+                            init_offset,
                         ) {
                             shell.publish(msg);
                         }
 
-                        if let Some(msg) = self.program.on_zoom(
+                        if let Some(msg) = self.program.on_zoom_reset(
                             &mut state.state,
                             bounds,
                             cursor,
                             infinite,
-                            state.scale,
-                            scale,
+                            init_scale,
                         ) {
                             shell.publish(msg);
                         }
@@ -952,16 +992,15 @@ where
                     }
 
                     keyboard::Key::Named(keyboard::key::Named::Home) if modifiers.shift() => {
-                        let diff = 1.0 - state.scale;
-                        state.reset_scale();
+                        let init = self.program.init_zoom();
+                        state.reset_scale(init);
 
-                        let msg = self.program.on_zoom(
+                        let msg = self.program.on_zoom_reset(
                             &mut state.state,
                             bounds,
                             cursor,
                             infinite,
-                            state.scale,
-                            diff,
+                            init,
                         );
 
                         if let Some(msg) = msg {
@@ -971,16 +1010,15 @@ where
                     }
 
                     keyboard::Key::Named(keyboard::key::Named::Home) => {
-                        let diff = Vector::new(0., 0.) - state.offset;
-                        state.reset_offset();
+                        let init = self.program.init_scroll();
+                        state.reset_offset(init);
 
-                        let msg = self.program.on_scroll(
+                        let msg = self.program.on_scroll_reset(
                             &mut state.state,
                             bounds,
                             cursor,
                             infinite,
-                            state.offset,
-                            diff,
+                            init
                         );
 
                         if let Some(msg) = msg {
@@ -1194,17 +1232,17 @@ impl<State> InfiniteState<State> {
         }
     }
 
-    fn reset_all(&mut self) {
-        self.reset_offset();
-        self.reset_scale();
+    fn reset_all(&mut self, offset: Vector, scale: f32) {
+        self.reset_offset(offset);
+        self.reset_scale(scale);
     }
 
-    fn reset_offset(&mut self) {
-        self.offset = Vector::new(0., 0.)
+    fn reset_offset(&mut self, init: Vector) {
+        self.offset = init;
     }
 
-    fn reset_scale(&mut self) {
-        self.scale = 1.0;
+    fn reset_scale(&mut self, init: f32) {
+        self.scale = init;
     }
 }
 
@@ -1323,7 +1361,7 @@ fn digits(num: u32) -> u32 {
         num /= 10;
     }
 
-    return output;
+    output
 }
 
 fn transform_path<State>(
