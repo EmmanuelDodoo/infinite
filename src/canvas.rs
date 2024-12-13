@@ -1104,6 +1104,19 @@ where
             style.background,
         );
 
+        let border_width = style.border.width;
+
+        let bounds = {
+            let width = bounds.width - (2. * border_width);
+            let height = bounds.height - (2.0 * border_width);
+
+            let position = bounds.position();
+
+            let top_left = Point::new(position.x + border_width, position.y + border_width);
+
+            Rectangle::new(top_left, Size::new(width, height))
+        };
+
         let position = bounds.position();
 
         renderer.with_translation(Vector::new(position.x, position.y), |renderer| {
