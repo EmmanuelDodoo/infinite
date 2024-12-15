@@ -705,7 +705,7 @@ where
 
         if let Some(canvas_event) = canvas_event {
             let state = state.state.downcast_mut::<InfiniteState<P::State>>();
-            let (cursor, infinite) = get_cursors(cursor, bounds, state.offset);
+            let (cursor, infinite) = get_cursors(cursor, bounds, state.offset, state.scale);
 
             let (status, message) =
                 self.program
@@ -727,12 +727,12 @@ where
         match event {
             iced::Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
                 let state = state.state.downcast_mut::<InfiniteState<P::State>>();
-                let (cursor, infinite) = get_cursors(cursor, bounds, state.offset);
+                let (cursor, infinite) = get_cursors(cursor, bounds, state.offset, state.scale);
 
                 match delta {
                     // Zoom
                     mouse::ScrollDelta::Lines { y, .. } if state.keyboard_modifier.shift() => {
-                        state.add_level(y);
+                        let offset_diff = state.add_level(y);
 
                         let msg = self.program.on_zoom(
                             &mut state.state,
@@ -747,10 +747,21 @@ where
                             shell.publish(msg);
                         }
 
+                        if let Some(msg) = self.program.on_scroll(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            infinite,
+                            state.offset,
+                            offset_diff,
+                        ) {
+                            shell.publish(msg);
+                        }
+
                         iced_event::Status::Captured
                     }
                     mouse::ScrollDelta::Pixels { y, .. } if state.keyboard_modifier.shift() => {
-                        state.add_level(y);
+                        let offset_diff = state.add_level(y);
                         let msg = self.program.on_zoom(
                             &mut state.state,
                             bounds,
@@ -761,6 +772,17 @@ where
                         );
 
                         if let Some(msg) = msg {
+                            shell.publish(msg);
+                        }
+
+                        if let Some(msg) = self.program.on_scroll(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            infinite,
+                            state.offset,
+                            offset_diff,
+                        ) {
                             shell.publish(msg);
                         }
 
@@ -817,9 +839,10 @@ where
                     }
                 }
             }
+
             iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                 let state = state.state.downcast_mut::<InfiniteState<P::State>>();
-                let (cursor, infinite) = get_cursors(cursor, bounds, state.offset);
+                let (cursor, infinite) = get_cursors(cursor, bounds, state.offset, state.scale);
                 let translation = 25.0;
                 let zoom = SCALE_STEP;
                 match key {
@@ -926,7 +949,7 @@ where
 
                     // Zoom
                     keyboard::Key::Named(keyboard::key::Named::ArrowUp) if modifiers.shift() => {
-                        state.add_level(zoom);
+                        let offset_diff = state.add_level(zoom);
 
                         let msg = self.program.on_zoom(
                             &mut state.state,
@@ -941,11 +964,22 @@ where
                             shell.publish(msg);
                         }
 
+                        if let Some(msg) = self.program.on_scroll(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            infinite,
+                            state.offset,
+                            offset_diff,
+                        ) {
+                            shell.publish(msg);
+                        }
+
                         iced_event::Status::Captured
                     }
 
                     keyboard::Key::Named(keyboard::key::Named::ArrowDown) if modifiers.shift() => {
-                        state.add_level(-zoom);
+                        let offset_diff = state.add_level(-zoom);
 
                         let msg = self.program.on_zoom(
                             &mut state.state,
@@ -957,6 +991,17 @@ where
                         );
 
                         if let Some(msg) = msg {
+                            shell.publish(msg);
+                        }
+
+                        if let Some(msg) = self.program.on_scroll(
+                            &mut state.state,
+                            bounds,
+                            cursor,
+                            infinite,
+                            state.offset,
+                            offset_diff,
+                        ) {
                             shell.publish(msg);
                         }
 
@@ -1041,6 +1086,22 @@ where
                 iced_event::Status::Captured
             }
 
+            iced::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                let state = state.state.downcast_mut::<InfiniteState<P::State>>();
+                let (_, cursor) = get_cursors(cursor, bounds, state.offset, state.scale);
+
+                state.set_mouse_position(cursor.position());
+
+                iced_event::Status::Captured
+            }
+
+            iced::Event::Mouse(mouse::Event::CursorLeft) => {
+                let state = state.state.downcast_mut::<InfiniteState<P::State>>();
+                state.set_mouse_position(None);
+
+                iced_event::Status::Captured
+            }
+
             _ => iced_event::Status::Ignored,
         }
     }
@@ -1055,7 +1116,7 @@ where
     ) -> advanced::mouse::Interaction {
         let bounds = layout.bounds();
         let state = &state.state.downcast_ref::<InfiniteState<P::State>>();
-        let (cursor, infinite) = get_cursors(cursor, bounds, state.offset);
+        let (cursor, infinite) = get_cursors(cursor, bounds, state.offset, state.scale);
 
         self.program
             .mouse_interaction(&state.state, bounds, cursor, infinite)
@@ -1125,7 +1186,7 @@ where
             let mut frame = Frame::new(renderer, bounds.size());
             let center = frame.center();
 
-            let (cursor, infinite) = get_cursors(cursor, bounds, state.offset);
+            let (cursor, infinite) = get_cursors(cursor, bounds, state.offset, state.scale);
 
             let buffers = self.program.draw(
                 &state.state,
@@ -1146,10 +1207,11 @@ where
                 let radius = style.details_border_radius;
                 let color = style.details_text;
 
-                let scale = (state.scale_level + 1.0) * 100.;
+                let scale = (state.scale_level) * 100.;
                 let digs = digits(scale.abs() as u32) * 11;
                 let neg = if scale < 0. { 5. } else { 0. };
                 let digits = neg + (digs as f32) + 10.;
+                let digits = if scale == 10.0 {digits + 0.5} else {digits};
 
                 let padding = 12.5;
 
@@ -1237,6 +1299,7 @@ struct InfiniteState<State> {
     scale: f32,
     keyboard_modifier: keyboard::Modifiers,
     state: State,
+    mouse_position: Option<Point>,
 }
 
 impl<State> InfiniteState<State> {
@@ -1249,13 +1312,29 @@ impl<State> InfiniteState<State> {
             state,
             scale,
             keyboard_modifier: keyboard::Modifiers::default(),
+            mouse_position: None,
         }
     }
 
+    fn set_mouse_position(&mut self, position: Option<Point>) {
+        self.mouse_position = position;
+    }
+
     /// Adds to scale level
-    fn add_level(&mut self, diff: f32) {
+    fn add_level(&mut self, diff: f32) -> Vector {
         self.scale_level += diff;
+        let prev_scale = self.scale;
         self.scale = E.powf(self.scale_level);
+
+        let delta = {
+            let diff = self.scale - prev_scale;
+            let mouse = self.mouse_position.unwrap_or(Point::ORIGIN);
+            Vector::new(diff * mouse.x, -diff * mouse.y)
+        };
+
+        self.offset = self.offset + delta;
+
+        delta
     }
 
     fn set_scale_level(&mut self, level: f32) {
@@ -1367,11 +1446,11 @@ pub mod style {
 
 /// Returns a pair of [`Cursor`]s with the second [`Cursor`]'s point translated
 /// to fit within the [`Infinite`]'s coordinate system.
-fn get_cursors(cursor: Cursor, bounds: Rectangle, offset: Vector) -> (Cursor, Cursor) {
+fn get_cursors(cursor: Cursor, bounds: Rectangle, offset: Vector, scale: f32) -> (Cursor, Cursor) {
     match cursor {
         Cursor::Available(point) => {
             let point = bounds.center() - point;
-            let point = point - offset;
+            let point = (point - offset) * (1. / scale);
             let point = Point::new(-point.x, point.y);
 
             (cursor, Cursor::Available(point))
