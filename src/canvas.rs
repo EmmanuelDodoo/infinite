@@ -118,11 +118,15 @@ where
     ///
     /// Scrolling up in the Y direction pulls the canvas down, thus the Y vector
     /// component is negative.
+    ///
+    /// Resetting the [`Infinite`] returns the scroll back to this value
     fn init_scroll(&self) -> iced::Vector {
         Vector::new(0., 0.)
     }
 
     /// Returns the zoom the [`Infinite`] starts with.
+    ///
+    /// Resetting the [`Infinite`] returns the scroll back to this value
     fn init_zoom(&self) -> f32 {
         0.0
     }
