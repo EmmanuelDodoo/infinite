@@ -8,7 +8,8 @@
 //! All functionality requires the [`Infinite`] to be hovered on by the
 //! cursor. These are currently implemented:
 //!
-//! - Scrolling: Mouse scroll or Cmd(Ctrl) + arrow direction.
+//! - Cursor-focused scrolling: Mouse scroll or Cmd(Ctrl) + arrow direction.
+//! - Origin-focused scrolling: Mouse scroll + Shift or Cmd(Ctrl) + Shift + arrow direction.
 //! - Zoom: Shift + Mouse scroll or Shift + arrow direction.
 //! - Reset Zoom: Shift + Home key.
 //! - Reset Scroll: Home key.
@@ -127,7 +128,7 @@ where
 
     /// Returns the zoom the [`Infinite`] starts with.
     ///
-    /// Resetting the [`Infinite`] returns the scroll back to this value
+    /// Resetting the [`Infinite`] returns the zoom back to this value
     fn init_zoom(&self) -> f32 {
         0.0
     }
@@ -593,6 +594,8 @@ pub enum ScrollDirection {
     #[default]
     /// Scroll in both x and y directions
     Both,
+    /// No scroll in any direction. Scroll events are thus ignored.
+    None,
 }
 
 /// A widget capable of drawing 2D graphics on an infinite Cartesian plane.
@@ -605,6 +608,9 @@ where
     width: Length,
     height: Length,
     direction: ScrollDirection,
+    allow_scale: bool,
+    scale_step: Option<f32>,
+    offset_step: Option<Vector>,
     _message: PhantomData<Message>,
     _renderer: PhantomData<Renderer>,
     program: P,
@@ -625,6 +631,9 @@ where
             width: Length::Fixed(Self::DEFAULT_SIZE),
             height: Length::Fixed(Self::DEFAULT_SIZE),
             direction: ScrollDirection::default(),
+            allow_scale: true,
+            scale_step: None,
+            offset_step: None,
             program,
             _message: PhantomData,
             _renderer: PhantomData,
@@ -647,6 +656,24 @@ where
     /// Sets the supported scroll direction of the [`Infinite`].
     pub fn scroll_direction(mut self, direction: ScrollDirection) -> Self {
         self.direction = direction;
+        self
+    }
+
+    /// Sets whether the [`Infinite`] can be zoomed in/out on.
+    pub fn zoom(mut self, allow: bool) -> Self {
+        self.allow_scale = allow;
+        self
+    }
+
+    /// Sets the value of a single zoom on the [`Infinite`].
+    pub fn zoom_step(mut self, step: f32) -> Self {
+        self.scale_step = Some(step);
+        self
+    }
+
+    /// Sets the value of a single scroll on the [`Infinite`].
+    pub fn scroll_step(mut self, step: Vector) -> Self {
+        self.offset_step = Some(step);
         self
     }
 
@@ -734,37 +761,54 @@ where
                 let state = state.state.downcast_mut::<InfiniteState<P::State>>();
                 let (cursor, infinite) = get_cursors(cursor, bounds, state.offset, state.scale);
                 let modifiers = state.keyboard_modifier;
-                let step = SCALE_STEP;
+                let scale_step = self.scale_step.unwrap_or(SCALE_STEP);
 
                 match delta {
                     // Zoom
                     mouse::ScrollDelta::Lines { y, .. }
                         if modifiers.shift() && modifiers.command() =>
                     {
-                        let step = if y < 0. { -step } else { step };
+                        if !self.allow_scale {
+                            return iced_event::Status::Ignored;
+                        };
+                        let step = if y < 0. { -scale_step } else { scale_step };
                         handle_scale(self, state, shell, bounds, (cursor, infinite), step, true)
                     }
                     mouse::ScrollDelta::Pixels { y, .. }
                         if modifiers.shift() && modifiers.command() =>
                     {
-                        let step = if y < 0. { -step } else { step };
+                        if !self.allow_scale {
+                            return iced_event::Status::Ignored;
+                        };
+                        let step = if y < 0. { -scale_step } else { scale_step };
                         handle_scale(self, state, shell, bounds, (cursor, infinite), step, true)
                     }
                     mouse::ScrollDelta::Lines { y, .. } if modifiers.shift() => {
-                        let step = if y < 0. { -step } else { step };
+                        if !self.allow_scale {
+                            return iced_event::Status::Ignored;
+                        };
+                        let step = if y < 0. { -scale_step } else { scale_step };
                         handle_scale(self, state, shell, bounds, (cursor, infinite), step, false)
                     }
                     mouse::ScrollDelta::Pixels { y, .. } if modifiers.shift() => {
-                        let step = if y < 0. { -step } else { step };
+                        if !self.allow_scale {
+                            return iced_event::Status::Ignored;
+                        };
+                        let step = if y < 0. { -scale_step } else { scale_step };
                         handle_scale(self, state, shell, bounds, (cursor, infinite), step, false)
                     }
 
                     // Translation
                     mouse::ScrollDelta::Pixels { x, y } => {
+                        let (x, y) = match self.offset_step {
+                            Some(offset) => (offset.x, offset.y),
+                            None => (x, y),
+                        };
                         let offset = match self.direction {
                             ScrollDirection::X => Vector::new(x, 0.),
                             ScrollDirection::Y => Vector::new(0., y),
                             ScrollDirection::Both => Vector::new(x, y),
+                            ScrollDirection::None => return iced_event::Status::Ignored,
                         };
 
                         state.offset = state.offset - offset;
@@ -784,11 +828,16 @@ where
                         iced_event::Status::Captured
                     }
                     mouse::ScrollDelta::Lines { x, y } => {
+                        let (x, y) = match self.offset_step {
+                            Some(offset) => (offset.x, offset.y),
+                            None => (x, y),
+                        };
                         let mult = 100.0;
                         let offset = match self.direction {
                             ScrollDirection::X => Vector::new(x, 0.),
                             ScrollDirection::Y => Vector::new(0., y),
                             ScrollDirection::Both => Vector::new(x, y),
+                            ScrollDirection::None => return iced_event::Status::Ignored,
                         } * mult;
 
                         state.offset = state.offset - offset;
@@ -813,36 +862,85 @@ where
             iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                 let state = state.state.downcast_mut::<InfiniteState<P::State>>();
                 let (cursor, infinite) = get_cursors(cursor, bounds, state.offset, state.scale);
-                let translation = OFFSET_STEP;
-                let zoom = SCALE_STEP;
+                let (offset_x, offset_y) = match self.offset_step {
+                    Some(offset) => (offset.x, offset.y),
+                    None => (OFFSET_STEP, OFFSET_STEP),
+                };
+                let scale_step = self.scale_step.unwrap_or(SCALE_STEP);
+
                 match key {
                     // Zoom
                     keyboard::Key::Named(keyboard::key::Named::ArrowUp)
                         if modifiers.shift() && modifiers.command() =>
                     {
-                        handle_scale(self, state, shell, bounds, (cursor, infinite), zoom, true)
+                        if !self.allow_scale {
+                            return iced_event::Status::Ignored;
+                        };
+                        handle_scale(
+                            self,
+                            state,
+                            shell,
+                            bounds,
+                            (cursor, infinite),
+                            scale_step,
+                            true,
+                        )
                     }
 
                     keyboard::Key::Named(keyboard::key::Named::ArrowDown)
                         if modifiers.shift() && modifiers.command() =>
                     {
-                        handle_scale(self, state, shell, bounds, (cursor, infinite), -zoom, true)
+                        if !self.allow_scale {
+                            return iced_event::Status::Ignored;
+                        };
+                        handle_scale(
+                            self,
+                            state,
+                            shell,
+                            bounds,
+                            (cursor, infinite),
+                            -scale_step,
+                            true,
+                        )
                     }
 
                     keyboard::Key::Named(keyboard::key::Named::ArrowUp) if modifiers.shift() => {
-                        handle_scale(self, state, shell, bounds, (cursor, infinite), zoom, false)
+                        if !self.allow_scale {
+                            return iced_event::Status::Ignored;
+                        };
+                        handle_scale(
+                            self,
+                            state,
+                            shell,
+                            bounds,
+                            (cursor, infinite),
+                            scale_step,
+                            false,
+                        )
                     }
 
                     keyboard::Key::Named(keyboard::key::Named::ArrowDown) if modifiers.shift() => {
-                        handle_scale(self, state, shell, bounds, (cursor, infinite), -zoom, false)
+                        if !self.allow_scale {
+                            return iced_event::Status::Ignored;
+                        };
+                        handle_scale(
+                            self,
+                            state,
+                            shell,
+                            bounds,
+                            (cursor, infinite),
+                            -scale_step,
+                            false,
+                        )
                     }
 
                     // Translations
                     keyboard::Key::Named(keyboard::key::Named::ArrowUp) if modifiers.command() => {
                         let offset = match self.direction {
                             ScrollDirection::X => Vector::new(0., 0.),
-                            ScrollDirection::Y => Vector::new(0., translation),
-                            ScrollDirection::Both => Vector::new(0., translation),
+                            ScrollDirection::Y => Vector::new(0., offset_y),
+                            ScrollDirection::Both => Vector::new(0., offset_y),
+                            ScrollDirection::None => return iced_event::Status::Ignored,
                         };
 
                         state.offset = state.offset - offset;
@@ -867,8 +965,9 @@ where
                     {
                         let offset = match self.direction {
                             ScrollDirection::X => Vector::new(0., 0.),
-                            ScrollDirection::Y => Vector::new(0., translation),
-                            ScrollDirection::Both => Vector::new(0., translation),
+                            ScrollDirection::Y => Vector::new(0., offset_y),
+                            ScrollDirection::Both => Vector::new(0., offset_y),
+                            ScrollDirection::None => return iced_event::Status::Ignored,
                         };
                         state.offset = state.offset + offset;
 
@@ -892,9 +991,10 @@ where
                         if modifiers.command() =>
                     {
                         let offset = match self.direction {
-                            ScrollDirection::X => Vector::new(translation, 0.),
+                            ScrollDirection::X => Vector::new(offset_x, 0.),
                             ScrollDirection::Y => Vector::new(0., 0.),
-                            ScrollDirection::Both => Vector::new(translation, 0.),
+                            ScrollDirection::Both => Vector::new(offset_x, 0.),
+                            ScrollDirection::None => return iced_event::Status::Ignored,
                         };
                         state.offset = state.offset - offset;
 
@@ -917,9 +1017,10 @@ where
                         if modifiers.command() =>
                     {
                         let offset = match self.direction {
-                            ScrollDirection::X => Vector::new(translation, 0.),
+                            ScrollDirection::X => Vector::new(offset_x, 0.),
                             ScrollDirection::Y => Vector::new(0., 0.),
-                            ScrollDirection::Both => Vector::new(translation, 0.),
+                            ScrollDirection::Both => Vector::new(offset_x, 0.),
+                            ScrollDirection::None => return iced_event::Status::Ignored,
                         };
                         state.offset = state.offset + offset;
 
