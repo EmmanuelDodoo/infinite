@@ -44,6 +44,7 @@ use style::*;
 
 const DEFAULT_BACKGROUND: Background = Background::Color(color!(203, 213, 240));
 const SCALE_STEP: f32 = 0.1;
+const OFFSET_STEP: f32 = 25.0;
 
 /// Handle [`Infinite`] canvas event.
 pub mod event {
@@ -732,65 +733,30 @@ where
             iced::Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
                 let state = state.state.downcast_mut::<InfiniteState<P::State>>();
                 let (cursor, infinite) = get_cursors(cursor, bounds, state.offset, state.scale);
+                let modifiers = state.keyboard_modifier;
+                let step = SCALE_STEP;
 
                 match delta {
                     // Zoom
-                    mouse::ScrollDelta::Lines { y, .. } if state.keyboard_modifier.shift() => {
-                        let offset_diff = state.add_level(y);
-
-                        let msg = self.program.on_zoom(
-                            &mut state.state,
-                            bounds,
-                            cursor,
-                            infinite,
-                            state.scale_level + 1.0,
-                            y,
-                        );
-
-                        if let Some(msg) = msg {
-                            shell.publish(msg);
-                        }
-
-                        if let Some(msg) = self.program.on_scroll(
-                            &mut state.state,
-                            bounds,
-                            cursor,
-                            infinite,
-                            state.offset,
-                            offset_diff,
-                        ) {
-                            shell.publish(msg);
-                        }
-
-                        iced_event::Status::Captured
+                    mouse::ScrollDelta::Lines { y, .. }
+                        if modifiers.shift() && modifiers.command() =>
+                    {
+                        let step = if y < 0. { -step } else { step };
+                        handle_scale(self, state, shell, bounds, (cursor, infinite), step, true)
                     }
-                    mouse::ScrollDelta::Pixels { y, .. } if state.keyboard_modifier.shift() => {
-                        let offset_diff = state.add_level(y);
-                        let msg = self.program.on_zoom(
-                            &mut state.state,
-                            bounds,
-                            cursor,
-                            infinite,
-                            state.scale_level + 1.0,
-                            y,
-                        );
-
-                        if let Some(msg) = msg {
-                            shell.publish(msg);
-                        }
-
-                        if let Some(msg) = self.program.on_scroll(
-                            &mut state.state,
-                            bounds,
-                            cursor,
-                            infinite,
-                            state.offset,
-                            offset_diff,
-                        ) {
-                            shell.publish(msg);
-                        }
-
-                        iced_event::Status::Captured
+                    mouse::ScrollDelta::Pixels { y, .. }
+                        if modifiers.shift() && modifiers.command() =>
+                    {
+                        let step = if y < 0. { -step } else { step };
+                        handle_scale(self, state, shell, bounds, (cursor, infinite), step, true)
+                    }
+                    mouse::ScrollDelta::Lines { y, .. } if modifiers.shift() => {
+                        let step = if y < 0. { -step } else { step };
+                        handle_scale(self, state, shell, bounds, (cursor, infinite), step, false)
+                    }
+                    mouse::ScrollDelta::Pixels { y, .. } if modifiers.shift() => {
+                        let step = if y < 0. { -step } else { step };
+                        handle_scale(self, state, shell, bounds, (cursor, infinite), step, false)
                     }
 
                     // Translation
@@ -847,9 +813,30 @@ where
             iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                 let state = state.state.downcast_mut::<InfiniteState<P::State>>();
                 let (cursor, infinite) = get_cursors(cursor, bounds, state.offset, state.scale);
-                let translation = 25.0;
+                let translation = OFFSET_STEP;
                 let zoom = SCALE_STEP;
                 match key {
+                    // Zoom
+                    keyboard::Key::Named(keyboard::key::Named::ArrowUp)
+                        if modifiers.shift() && modifiers.command() =>
+                    {
+                        handle_scale(self, state, shell, bounds, (cursor, infinite), zoom, true)
+                    }
+
+                    keyboard::Key::Named(keyboard::key::Named::ArrowDown)
+                        if modifiers.shift() && modifiers.command() =>
+                    {
+                        handle_scale(self, state, shell, bounds, (cursor, infinite), -zoom, true)
+                    }
+
+                    keyboard::Key::Named(keyboard::key::Named::ArrowUp) if modifiers.shift() => {
+                        handle_scale(self, state, shell, bounds, (cursor, infinite), zoom, false)
+                    }
+
+                    keyboard::Key::Named(keyboard::key::Named::ArrowDown) if modifiers.shift() => {
+                        handle_scale(self, state, shell, bounds, (cursor, infinite), -zoom, false)
+                    }
+
                     // Translations
                     keyboard::Key::Named(keyboard::key::Named::ArrowUp) if modifiers.command() => {
                         let offset = match self.direction {
@@ -948,67 +935,6 @@ where
                         if let Some(msg) = msg {
                             shell.publish(msg);
                         }
-                        iced_event::Status::Captured
-                    }
-
-                    // Zoom
-                    keyboard::Key::Named(keyboard::key::Named::ArrowUp) if modifiers.shift() => {
-                        let offset_diff = state.add_level(zoom);
-
-                        let msg = self.program.on_zoom(
-                            &mut state.state,
-                            bounds,
-                            cursor,
-                            infinite,
-                            state.scale_level + 1.0,
-                            zoom,
-                        );
-
-                        if let Some(msg) = msg {
-                            shell.publish(msg);
-                        }
-
-                        if let Some(msg) = self.program.on_scroll(
-                            &mut state.state,
-                            bounds,
-                            cursor,
-                            infinite,
-                            state.offset,
-                            offset_diff,
-                        ) {
-                            shell.publish(msg);
-                        }
-
-                        iced_event::Status::Captured
-                    }
-
-                    keyboard::Key::Named(keyboard::key::Named::ArrowDown) if modifiers.shift() => {
-                        let offset_diff = state.add_level(-zoom);
-
-                        let msg = self.program.on_zoom(
-                            &mut state.state,
-                            bounds,
-                            cursor,
-                            infinite,
-                            state.scale_level + 1.0,
-                            -zoom,
-                        );
-
-                        if let Some(msg) = msg {
-                            shell.publish(msg);
-                        }
-
-                        if let Some(msg) = self.program.on_scroll(
-                            &mut state.state,
-                            bounds,
-                            cursor,
-                            infinite,
-                            state.offset,
-                            offset_diff,
-                        ) {
-                            shell.publish(msg);
-                        }
-
                         iced_event::Status::Captured
                     }
 
@@ -1215,7 +1141,7 @@ where
                 let digs = digits(scale.abs() as u32) * 11;
                 let neg = if scale < 0. { 5. } else { 0. };
                 let digits = neg + (digs as f32) + 10.;
-                let digits = if scale == 10.0 {digits + 0.5} else {digits};
+                let digits = if scale == 10.0 { digits + 0.5 } else { digits };
 
                 let padding = 12.5;
 
@@ -1325,14 +1251,18 @@ impl<State> InfiniteState<State> {
     }
 
     /// Adds to scale level
-    fn add_level(&mut self, diff: f32) -> Vector {
+    fn add_level(&mut self, diff: f32, focal_origin: bool) -> Vector {
         self.scale_level += diff;
         let prev_scale = self.scale;
         self.scale = E.powf(self.scale_level);
 
         let delta = {
             let diff = self.scale - prev_scale;
-            let mouse = self.mouse_position.unwrap_or(Point::ORIGIN);
+            let mouse = if focal_origin {
+                Point::ORIGIN
+            } else {
+                self.mouse_position.unwrap_or(Point::ORIGIN)
+            };
             Vector::new(diff * mouse.x, -diff * mouse.y)
         };
 
@@ -1547,4 +1477,47 @@ fn transform_text<State>(
         line_height: text.line_height,
         shaping: text.shaping,
     }
+}
+
+fn handle_scale<P, Message, Theme, Renderer>(
+    canvas: &Infinite<P, Message, Theme, Renderer>,
+    state: &mut InfiniteState<P::State>,
+    shell: &mut advanced::Shell<'_, Message>,
+    bounds: Rectangle,
+    cursors: (Cursor, Cursor),
+    zoom: f32,
+    focal_origin: bool,
+) -> iced::event::Status
+where
+    Theme: Catalog,
+    P: Program<Message, Theme, Renderer>,
+    Renderer: geometry::Renderer,
+{
+    let offset_diff = state.add_level(zoom, focal_origin);
+
+    let msg = canvas.program.on_zoom(
+        &mut state.state,
+        bounds,
+        cursors.0,
+        cursors.1,
+        state.scale_level + 1.0,
+        zoom,
+    );
+
+    if let Some(msg) = msg {
+        shell.publish(msg);
+    }
+
+    if let Some(msg) = canvas.program.on_scroll(
+        &mut state.state,
+        bounds,
+        cursors.0,
+        cursors.1,
+        state.offset,
+        offset_diff,
+    ) {
+        shell.publish(msg);
+    }
+
+    iced_event::Status::Captured
 }
