@@ -5,7 +5,7 @@ use iced::{
         canvas::{Path, Text},
         center,
     },
-    Element, Length, Renderer, Theme,
+    Element, Length, Point, Renderer, Theme,
 };
 
 use infinite::*;
@@ -49,36 +49,31 @@ impl Playground {
 /// Negative steps not supported, step of zero not supported
 struct Scale {
     start: f32,
+    og_start: f32,
+    og_end: f32,
     end: f32,
     step: f32,
+    og_step: f32,
 }
 
-#[allow(dead_code)]
 impl Scale {
     /// Bounds should never be 0
     fn new(bounds: f32) -> Self {
         assert_ne!(bounds, 0.0);
         Self {
             start: -bounds,
+            og_start: -bounds,
             end: bounds,
+            og_end: bounds,
             step: 1.,
+            og_step: 1.,
         }
     }
 
-    fn scroll(&mut self, scroll: f32) {
-        let scroll = self.step * scroll;
+    fn scroll(&mut self, amount: f32) {
+        let scroll = self.step * amount;
         self.start += scroll;
         self.end += scroll;
-    }
-
-    fn start(mut self, start: f32) -> Self {
-        self.start = start;
-        self
-    }
-
-    fn end(mut self, end: f32) -> Self {
-        self.end = end;
-        self
     }
 
     /// Negative steps not supported, step of zero not supported
@@ -93,28 +88,14 @@ impl Scale {
         let step = self.scale(expand);
         self.step = step;
 
-        //self.start *= step;
-        //self.end *= step;
-
-        //let temp = self.start * step;
-        //let is_negative = temp < 0.0;
-        //let temp = temp.abs().max(1.0);
-        //self.start = if is_negative { -temp } else { temp };
-        //
-        //let temp = self.end * step;
-        //let is_negative = temp < 0.0;
-        //let temp = temp.abs().max(1.0);
-        //self.end = if is_negative { -temp } else { temp };
+        self.start = 1.0 * self.og_start * step;
+        self.end = 1.0 * self.og_end * step;
     }
 
-    fn zoom_scale(&mut self, expand: bool) {
-        if expand {
-            self.start *= 2.0;
-            self.end *= 2.0;
-        } else {
-            self.start /= 2.0;
-            self.end /= 2.0;
-        }
+    fn reset(&mut self) {
+        self.start = self.og_start;
+        self.end = self.og_end;
+        self.step = self.og_step;
     }
 
     fn scale(&self, expand: bool) -> f32 {
@@ -191,6 +172,12 @@ impl Scale {
     }
 }
 
+impl From<f32> for Scale {
+    fn from(value: f32) -> Self {
+        Self::new(value)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct ScaleIter {
     current: f32,
@@ -231,16 +218,14 @@ impl IntoIterator for Scale {
         self.into()
     }
 }
+
 struct Graph;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct GraphState {
     x_scale: Scale,
-    kx: f32,
     scroll: iced::Vector,
-    scale: f32,
-    temp: f32,
-    threshold: f32,
+    zoom_state: ZoomState,
 }
 
 impl GraphState {
@@ -248,14 +233,125 @@ impl GraphState {
         self.x_scale.into_iter()
     }
 
-    fn x_point_width(&self, bounds_width: f32) -> f32 {
-        let k = self.kx;
-        bounds_width * 0.5 / k
+    /// Returns the physical distance between x axis points given the width of
+    /// the bounds
+    fn x_point_width(&self, width: f32) -> f32 {
+        let k = self.zoom_state.kx;
+        width * 0.5 / k
     }
+}
 
-    // fn len(&self) -> u32 {
-    //     (self.start.abs() + self.end.abs()) as u32
-    // }
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+enum ZoomKind {
+    #[default]
+    None,
+    ZoomedIn(u32),
+    ZoomedOut(u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ZoomState {
+    tracker: i16,
+    threshold: i16,
+    // Determines how far apart two points are from each other
+    kx: f32,
+    og_kx: f32,
+    scale: f32,
+    kind: ZoomKind,
+}
+
+impl Default for ZoomState {
+    fn default() -> Self {
+        Self {
+            tracker: 0,
+            threshold: 5,
+            scale: 1.0,
+            kx: 5.0,
+            og_kx: 5.0,
+            kind: ZoomKind::None,
+        }
+    }
+}
+
+impl ZoomState {
+    fn on_zoom(&mut self, x_scale: &mut Scale, zoom: f32, diff: f32) {
+        self.scale = zoom;
+
+        let diff = (diff * 10.0) as i16;
+
+        self.tracker += diff;
+
+        let is_zoom_in = diff > 0;
+
+        let kx_delta = 1.25;
+
+        match self.kind {
+            ZoomKind::None => {
+                if self.tracker.abs() >= self.threshold {
+                    self.tracker %= self.threshold;
+                    x_scale.zoom(!is_zoom_in);
+
+                    if is_zoom_in {
+                        self.kind = ZoomKind::ZoomedIn(1);
+                    } else {
+                        self.kind = ZoomKind::ZoomedOut(1);
+                    }
+                }
+            }
+            ZoomKind::ZoomedIn(amt) => {
+                let threshold = self.threshold;
+
+                if is_zoom_in && self.tracker >= threshold {
+                    self.threshold = threshold;
+                    self.tracker %= self.threshold;
+                    x_scale.zoom(!is_zoom_in);
+                    self.kx = self.kx / kx_delta;
+
+                    self.kind = ZoomKind::ZoomedIn(amt + 1);
+                } else if !is_zoom_in && self.tracker < 0 {
+                    x_scale.zoom(!is_zoom_in);
+
+                    let amt = amt - 1;
+
+                    self.kx = (self.kx * kx_delta).max(self.og_kx);
+                    if amt == 0 {
+                        self.tracker = threshold + self.tracker;
+                        self.kind = ZoomKind::None;
+                    } else {
+                        self.tracker = threshold + self.tracker;
+                        self.threshold = threshold;
+                        self.kind = ZoomKind::ZoomedIn(amt);
+                    }
+                }
+            }
+            ZoomKind::ZoomedOut(amt) => {
+                let threshold = self.threshold;
+
+                if !is_zoom_in && self.tracker <= -threshold {
+                    self.threshold = threshold;
+                    self.tracker %= self.threshold;
+                    x_scale.zoom(!is_zoom_in);
+                    self.kx = self.kx * kx_delta;
+
+                    self.kind = ZoomKind::ZoomedOut(amt + 1)
+                } else if is_zoom_in && self.tracker > 0 {
+                    x_scale.zoom(!is_zoom_in);
+
+                    let amt = amt - 1;
+
+                    self.kx = (self.kx / kx_delta).max(self.og_kx);
+                    if amt == 0 {
+                        self.tracker = -threshold + self.tracker;
+                        self.kind = ZoomKind::None;
+                    } else {
+                        self.tracker = -threshold + self.tracker;
+                        self.threshold = threshold;
+                        self.kind = ZoomKind::ZoomedOut(amt);
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl<Message> Program<Message, Theme, Renderer> for Graph {
@@ -263,12 +359,9 @@ impl<Message> Program<Message, Theme, Renderer> for Graph {
 
     fn init_state(&self) -> Self::State {
         GraphState {
-            x_scale: Scale::new(10.0),
-            kx: 5.0,
+            x_scale: Scale::new(10.0.into()),
             scroll: iced::Vector::new(0., 0.),
-            scale: 1.0,
-            temp: 0.0,
-            threshold: 0.5,
+            zoom_state: ZoomState::default(),
         }
     }
 
@@ -284,7 +377,7 @@ impl<Message> Program<Message, Theme, Renderer> for Graph {
         use iced::widget::canvas::Stroke;
         let color2 = color!(128, 0, 128);
         let color = color!(0, 128, 128);
-        //let color1 = color!(102, 51, 153);
+        let color1 = color!(102, 51, 153);
 
         let axis_color = theme.extended_palette().secondary.base.color;
         let axis_width = 2.5;
@@ -345,7 +438,7 @@ impl<Message> Program<Message, Theme, Renderer> for Graph {
 
             let width = state.x_point_width(bounds.width);
             let height = bounds.height;
-            let height = height / state.scale.max(0.01);
+            let height = height / state.zoom_state.scale.max(0.01);
             let pad = 18.0;
 
             for point in state.range() {
@@ -402,7 +495,20 @@ impl<Message> Program<Message, Theme, Renderer> for Graph {
             buffer
         };
 
-        vec![axis, x_points, dummies]
+        let temp = {
+            let mut buffer = Buffer::new().scale_all(false).anchor_all(Anchor::Both);
+
+            let line = {
+                let y = bounds.height / 2.0;
+                Path::line((0., center.y + y).into(), (0., center.y - y).into())
+            };
+
+            buffer.stroke(line, Stroke::default().with_width(3.0).with_color(color1));
+
+            buffer
+        };
+
+        vec![axis, x_points, dummies, temp]
     }
 
     fn on_scroll(
@@ -414,7 +520,8 @@ impl<Message> Program<Message, Theme, Renderer> for Graph {
         _scroll: iced::Vector,
         diff: iced::Vector,
     ) -> Option<Message> {
-        let mut scroll = state.scroll + diff;
+        let scroll = state.scroll;
+        let mut scroll = scroll + diff;
 
         let x_width = state.x_point_width(bounds.width);
 
@@ -426,6 +533,20 @@ impl<Message> Program<Message, Theme, Renderer> for Graph {
         }
 
         state.scroll = scroll;
+
+        None
+    }
+
+    fn on_scroll_reset(
+        &self,
+        state: &mut Self::State,
+        _bounds: iced::Rectangle,
+        _cursor: iced::mouse::Cursor,
+        _infinite_cursor: iced::mouse::Cursor,
+        scroll: iced::Vector,
+    ) -> Option<Message> {
+        state.scroll = scroll;
+        state.x_scale.reset();
         None
     }
 
@@ -435,51 +556,25 @@ impl<Message> Program<Message, Theme, Renderer> for Graph {
         _bounds: iced::Rectangle,
         _cursor: iced::mouse::Cursor,
         _infinite_cursor: iced::mouse::Cursor,
-        _zoom: f32,
+        _focal_point: Point,
+        zoom: f32,
         diff: f32,
     ) -> Option<Message> {
-        let zoom = state.temp + diff;
-        state.temp = zoom;
+        state.zoom_state.on_zoom(&mut state.x_scale, zoom, diff);
 
-        let threshold = if state.temp < 0.0 && diff > 0. || state.temp > 0. && diff < 0. {
-            state.threshold / 2.5
-        } else {
-            state.threshold
-        };
+        None
+    }
 
-        if zoom.abs() >= threshold {
-            state.x_scale.zoom(diff < 0.);
-            if state.temp < 0.0 && diff > 0. || state.temp > 0. && diff < 0. {
-                state.threshold /= 2.5;
-            } else {
-                state.threshold *= 2.5;
-            }
-            state.temp = zoom % state.threshold;
-
-            //    if zoom < 0. {
-            //        state.scale -= 0.5;
-            //        state.x_scale.zoom(true);
-            //        //state.x_scale.zoom_scale(true);
-            //    } else {
-            //        state.scale += 0.5;
-            //        state.x_scale.zoom(false);
-            //        //state.x_scale.zoom_scale(false);
-            //    }
-            //
-        }
-
-        //if zoom.abs() >= threshold.abs() {
-        //    //dbg!(state.scale);
-        //    //dbg!(threshold);
-        //
-        //    if threshold >= 0.0125 {
-        //        state.scale = threshold;
-        //        state.temp = state.scale;
-        //        state.x_scale.zoom(diff);
-        //        //state.x_scale.zoom_scale(diff);
-        //    }
-        //}
-
+    fn on_zoom_reset(
+        &self,
+        state: &mut Self::State,
+        _bounds: iced::Rectangle,
+        _cursor: iced::mouse::Cursor,
+        _infinite_cursor: iced::mouse::Cursor,
+        _zoom: f32,
+    ) -> Option<Message> {
+        state.x_scale.reset();
+        state.zoom_state = ZoomState::default();
         None
     }
 }

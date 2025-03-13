@@ -33,10 +33,13 @@ use std::marker::PhantomData;
 use iced::{
     advanced::{self, layout, mouse::Cursor, widget::tree, Widget},
     border::Radius,
-    color, event as iced_event, keyboard, mouse,
-    widget::canvas::{path::lyon_path::geom::euclid::Transform2D, Fill, Frame, Path, Stroke, Text},
-    Background, Border, Color, Element, Length, Point, Rectangle, Shadow, Size, Theme, Vector,
+    color, event as iced_event, keyboard, mouse, touch,
+    widget::canvas::{path::lyon_path::geom::euclid::Transform2D, Frame},
+    Background, Border, Color, Element, Length, Pixels, Point, Rectangle, Shadow, Size, Theme,
+    Vector,
 };
+
+pub use iced::widget::canvas::{Fill, Path, Stroke, Text};
 
 use iced_graphics::geometry;
 
@@ -183,6 +186,20 @@ where
         mouse::Interaction::default()
     }
 
+    /// Returns the overlay of the [`Infinite`], if there is any.
+    ///
+    /// A cursor whose position is translated to fit the [`Infinite`] coordinate
+    /// system is provided as `infinite_cursor`.
+    fn overlay<'a>(
+        &self,
+        _state: &'a mut Self::State,
+        _bounds: Rectangle,
+        _infinite_cursor: Point,
+        _translation: Vector,
+    ) -> Option<iced::advanced::overlay::Element<'a, Message, Theme, Renderer>> {
+        None
+    }
+
     /// Updates the state of the [`Program`] whenever a scroll occurs.
     ///
     /// The current scroll of the canvas is provided as `scroll` and the change
@@ -225,6 +242,7 @@ where
         _bounds: Rectangle,
         _cursor: mouse::Cursor,
         _infinite_cursor: mouse::Cursor,
+        _focal_point: Point,
         _zoom: f32,
         _diff: f32,
     ) -> Option<Message> {
@@ -370,148 +388,130 @@ impl<'a> Buffer<'a> {
             .push((path, stroke.into(), self.anchor.unwrap_or_default()))
     }
 
-    /// Draws a rectangle given its top-left corner coordinate, [`Size`] and [`Anchor`] by filling it with the provided style.
+    /// Draws a rectangle given its bottom-left corner coordinate, [`Size`] and [`Anchor`] by filling it with the provided style.
     pub fn fill_rectangle_anchored(
         &mut self,
-        top_left: impl Into<Point>,
+        bottom_left: impl Into<Point>,
         size: impl Into<Size>,
         fill: impl Into<Fill>,
         anchor: Anchor,
     ) {
         let size: Size = size.into();
-        let point = top_left.into();
-
-        let bottom_left = point - Vector::new(0., size.height);
+        let bottom_left = bottom_left.into();
 
         let path = Path::rectangle(bottom_left, size);
 
         self.fill_anchored(path, fill, anchor)
     }
 
-    /// Draws a rectangle given its top-left corner coordinate and its [`Size`] by filling it with the provided style and the [`Buffer`]'s anchor.
+    /// Draws a rectangle given its bottom-left corner coordinate and its [`Size`] by filling it with the provided style and the [`Buffer`]'s anchor.
     pub fn fill_rectangle(
         &mut self,
-        top_left: impl Into<Point>,
+        bottom_left: impl Into<Point>,
         size: impl Into<Size>,
         fill: impl Into<Fill>,
     ) {
         let size: Size = size.into();
-        let point = top_left.into();
-
-        let bottom_left = point - Vector::new(0., size.height);
+        let bottom_left = bottom_left.into();
 
         let path = Path::rectangle(bottom_left, size);
 
         self.fill_anchored(path, fill, self.anchor.unwrap_or_default())
     }
 
-    /// Draws a rounded rectangle given its top-left corner coordinate, [`Size`] and [`Anchor`] by filling it with the provided style.
+    /// Draws a rounded rectangle given its bottom-left corner coordinate, [`Size`] and [`Anchor`] by filling it with the provided style.
     pub fn fill_rounded_rectangle_anchored(
         &mut self,
-        top_left: impl Into<Point>,
+        bottom_left: impl Into<Point>,
         size: impl Into<Size>,
         radius: impl Into<Radius>,
         fill: impl Into<Fill>,
         anchor: Anchor,
     ) {
         let size: Size = size.into();
-        let point = top_left.into();
+        let bottom_left = bottom_left.into();
 
-        let top_left = point - Vector::new(0., size.height);
-
-        let path = Path::rounded_rectangle(top_left, size, radius.into());
+        let path = Path::rounded_rectangle(bottom_left, size, radius.into());
 
         self.fill_anchored(path, fill, anchor);
     }
 
-    /// Draws a rounded rectangle given its top-left corner coordinate and its [`Size`] by filling it with the provided style and the [`Buffer`]'s anchor.
+    /// Draws a rounded rectangle given its bottom-left corner coordinate and its [`Size`] by filling it with the provided style and the [`Buffer`]'s anchor.
     pub fn fill_rounded_rectangle(
         &mut self,
-        top_left: impl Into<Point>,
+        bottom_left: impl Into<Point>,
         size: impl Into<Size>,
         radius: impl Into<Radius>,
         fill: impl Into<Fill>,
     ) {
         let size: Size = size.into();
-        let point = top_left.into();
+        let bottom_left = bottom_left.into();
 
-        let top_left = point - Vector::new(0., size.height);
-
-        let path = Path::rounded_rectangle(top_left, size, radius.into());
+        let path = Path::rounded_rectangle(bottom_left, size, radius.into());
 
         self.fill(path, fill);
     }
 
-    /// Draws the stroke of a rectangle with the provided style given its top-left corner coordinate and its [`Size`].
+    /// Draws the stroke of a rectangle with the provided style given its bottom-left corner coordinate and its [`Size`].
     pub fn stroke_rect_anchored(
         &mut self,
-        top_left: impl Into<Point>,
+        bottom_left: impl Into<Point>,
         size: impl Into<Size>,
         stroke: impl Into<Stroke<'a>>,
         anchor: Anchor,
     ) {
         let size: Size = size.into();
-        let point = top_left.into();
-
-        //let bottom_left = point - Into::<Vector>::into(size);
-        let bottom_left = point - Vector::new(0., size.height);
+        let bottom_left = bottom_left.into();
 
         let path = Path::rectangle(bottom_left, size);
 
         self.stroke_anchored(path, stroke, anchor)
     }
 
-    /// Draws the stroke of a rectangle with the provided style given its top-left corner coordinate and its [`Size`] and the [`Buffer`]'s anchor.
+    /// Draws the stroke of a rectangle with the provided style given its bottom-left corner coordinate and its [`Size`] and the [`Buffer`]'s anchor.
     pub fn stroke_rectangle(
         &mut self,
-        top_left: impl Into<Point>,
+        bottom_left: impl Into<Point>,
         size: impl Into<Size>,
         stroke: impl Into<Stroke<'a>>,
     ) {
         let size: Size = size.into();
-        let point = top_left.into();
-
-        //let bottom_left = point - Into::<Vector>::into(size);
-        let bottom_left = point - Vector::new(0., size.height);
+        let bottom_left = bottom_left.into();
 
         let path = Path::rectangle(bottom_left, size);
 
         self.stroke(path, stroke)
     }
 
-    /// Draws the stroke of a rounded rectangle with the provided style given its top-left corner coordinate and its [`Size`].
+    /// Draws the stroke of a rounded rectangle with the provided style given its bottom-left corner coordinate and its [`Size`].
     pub fn stroke_rounded_rectangle_anchored(
         &mut self,
-        top_left: impl Into<Point>,
+        bottom_left: impl Into<Point>,
         size: impl Into<Size>,
         radius: impl Into<Radius>,
         stroke: impl Into<Stroke<'a>>,
         anchor: Anchor,
     ) {
         let size: Size = size.into();
-        let point = top_left.into();
+        let bottom_left = bottom_left.into();
 
-        let top_left = point - Vector::new(0., size.height);
-
-        let path = Path::rounded_rectangle(top_left, size, radius.into());
+        let path = Path::rounded_rectangle(bottom_left, size, radius.into());
 
         self.stroke_anchored(path, stroke, anchor);
     }
 
-    /// Draws the stroke of a rounded rectangle with the provided style given its top-left corner coordinate and its [`Size`] and the [`Buffer`]'s anchor.
+    /// Draws the stroke of a rounded rectangle with the provided style given its bottom-left corner coordinate and its [`Size`] and the [`Buffer`]'s anchor.
     pub fn stroke_rounded_rectangle(
         &mut self,
-        top_left: impl Into<Point>,
+        bottom_left: impl Into<Point>,
         size: impl Into<Size>,
         radius: impl Into<Radius>,
         stroke: impl Into<Stroke<'a>>,
     ) {
         let size: Size = size.into();
-        let point = top_left.into();
+        let bottom_left = bottom_left.into();
 
-        let top_left = point - Vector::new(0., size.height);
-
-        let path = Path::rounded_rectangle(top_left, size, radius.into());
+        let path = Path::rounded_rectangle(bottom_left, size, radius.into());
 
         self.stroke(path, stroke);
     }
@@ -728,11 +728,10 @@ where
     ) -> iced_event::Status {
         let bounds = layout.bounds();
 
-        let canvas_event = match event.clone() {
-            iced::Event::Mouse(event) => Some(Event::Mouse(event)),
-            iced::Event::Keyboard(event) => Some(Event::Keyboard(event)),
-            iced::Event::Touch(event) => Some(Event::Touch(event)),
-            _ => None,
+        let canvas_event = {
+            let state = state.state.downcast_ref::<InfiniteState<P::State>>();
+
+            wrap_event(event.clone(), bounds, state.offset, state.scale)
         };
 
         if let Some(canvas_event) = canvas_event {
@@ -941,7 +940,7 @@ where
                             ScrollDirection::Y => Vector::new(0., offset_y),
                             ScrollDirection::Both => Vector::new(0., offset_y),
                             ScrollDirection::None => return iced_event::Status::Ignored,
-                        };
+                        } * (1.0 / state.scale);
 
                         state.offset = state.offset - offset;
                         let msg = self.program.on_scroll(
@@ -968,7 +967,7 @@ where
                             ScrollDirection::Y => Vector::new(0., offset_y),
                             ScrollDirection::Both => Vector::new(0., offset_y),
                             ScrollDirection::None => return iced_event::Status::Ignored,
-                        };
+                        } * (1.0 / state.scale);
                         state.offset = state.offset + offset;
 
                         let msg = self.program.on_scroll(
@@ -995,7 +994,7 @@ where
                             ScrollDirection::Y => Vector::new(0., 0.),
                             ScrollDirection::Both => Vector::new(offset_x, 0.),
                             ScrollDirection::None => return iced_event::Status::Ignored,
-                        };
+                        } * (1.0 / state.scale);
                         state.offset = state.offset - offset;
 
                         let msg = self.program.on_scroll(
@@ -1021,7 +1020,7 @@ where
                             ScrollDirection::Y => Vector::new(0., 0.),
                             ScrollDirection::Both => Vector::new(offset_x, 0.),
                             ScrollDirection::None => return iced_event::Status::Ignored,
-                        };
+                        } * (1.0 / state.scale);
                         state.offset = state.offset + offset;
 
                         let msg = self.program.on_scroll(
@@ -1078,7 +1077,7 @@ where
                             bounds,
                             cursor,
                             infinite,
-                            init,
+                            state.scale,
                         );
 
                         if let Some(msg) = msg {
@@ -1232,6 +1231,16 @@ where
                 buffer.draw(&mut frame, state, center);
             }
 
+            let top = 2.5;
+            let left = 8.0;
+            let details_padding = {
+                let bottom = 2.5;
+                let right = 8.0;
+                Size::new(left + right, top + bottom)
+            };
+            let details_bounds = Size::INFINITY;
+            let details_size = 16.0;
+
             if state.scale_level != 0.0 {
                 let pos = (bounds.width * 0.9, bounds.height * 0.95).into();
                 let background = style.details_background;
@@ -1239,21 +1248,18 @@ where
                 let color = style.details_text;
 
                 let scale = (state.scale_level) * 100.;
-                let digs = digits(scale.abs() as u32) * 11;
-                let neg = if scale < 0. { 5. } else { 0. };
-                let digits = neg + (digs as f32) + 10.;
-                let digits = if scale == 10.0 { digits + 0.5 } else { digits };
 
-                let padding = 12.5;
+                let scale_string = format!("{:.0}%", scale);
+                let min_bounds = min_text_bounds(&scale_string, details_bounds, details_size);
+                let bounds = min_bounds.expand(details_padding);
 
-                let rect =
-                    Path::rounded_rectangle(pos, (digits + 2. * padding, 30.).into(), radius);
+                let rect = Path::rounded_rectangle(pos, bounds, radius);
 
                 frame.fill(&rect, background);
 
                 let text = Text {
-                    content: format!("{:.0}%", scale),
-                    position: (pos.x + padding, pos.y + 5.).into(),
+                    content: scale_string,
+                    position: (pos.x + left, pos.y + top).into(),
                     color,
                     ..Default::default()
                 };
@@ -1261,7 +1267,7 @@ where
                 frame.fill_text(text);
             }
 
-            if state.offset != Vector::new(0., 0.) {
+            if state.offset != Vector::ZERO {
                 let pos = (bounds.width * 0.01, bounds.height * 0.95).into();
                 let background = style.details_background;
                 let radius = style.details_border_radius;
@@ -1270,32 +1276,17 @@ where
                 let x = state.offset.x;
                 let y = state.offset.y * -1.;
 
-                // 16: x: y:
-                // each digit: 9
-                // point: 3
-                // - : 5
-                // , : 9
-                // total:
-                // 16 + (x_num + x_neg) + 12 + 9 + 16 + (y_num + y_neg) + 12
-                // 25 because dp spacing wasn't enough at 12
+                let offset_string = format!("x: {x:.1}, y: {y:.1}");
+                let min_bounds = min_text_bounds(&offset_string, details_bounds, details_size);
+                let bounds = min_bounds.expand(details_padding);
 
-                let x_num = digits(x.abs() as u32) * 9;
-                let x_neg = if x < 0. { 5. } else { 0. };
-                let y_num = digits(y.abs() as u32) * 9;
-                let y_neg = if y < 0. { 5. } else { 0. };
-
-                let digits =
-                    16. + (x_num as f32) + x_neg + 25. + 9. + 16. + (y_num as f32) + y_neg + 25.;
-                let padding = 12.5;
-
-                let rect =
-                    Path::rounded_rectangle(pos, (digits + 2. * padding, 30.).into(), radius);
+                let rect = Path::rounded_rectangle(pos, bounds, radius);
 
                 frame.fill(&rect, background);
 
                 let text = Text {
-                    content: format!("x: {x:.1}, y: {y:.1}",),
-                    position: (pos.x + padding, pos.y + 5.).into(),
+                    content: offset_string,
+                    position: (pos.x + left, pos.y + top).into(),
                     color,
                     ..Default::default()
                 };
@@ -1307,6 +1298,24 @@ where
 
             renderer.draw_geometry(geoms);
         });
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        state: &'b mut tree::Tree,
+        layout: layout::Layout<'_>,
+        _renderer: &Renderer,
+        translation: Vector,
+    ) -> Option<advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        let bounds = layout.bounds();
+        let state = state.state.downcast_mut::<InfiniteState<P::State>>();
+
+        self.program.overlay(
+            &mut state.state,
+            bounds,
+            state.mouse_position.unwrap_or_default(),
+            translation,
+        )
     }
 }
 
@@ -1330,6 +1339,7 @@ struct InfiniteState<State> {
     scale: f32,
     keyboard_modifier: keyboard::Modifiers,
     state: State,
+    /// The virtual position of the cursor
     mouse_position: Option<Point>,
 }
 
@@ -1357,14 +1367,21 @@ impl<State> InfiniteState<State> {
         let prev_scale = self.scale;
         self.scale = E.powf(self.scale_level);
 
-        let delta = {
-            let diff = self.scale - prev_scale;
-            let mouse = if focal_origin {
-                Point::ORIGIN
+        let delta = if focal_origin {
+            let ratio = if diff < 0.0 {
+                prev_scale / self.scale
             } else {
-                self.mouse_position.unwrap_or(Point::ORIGIN)
+                self.scale / prev_scale
             };
-            Vector::new(diff * mouse.x, -diff * mouse.y)
+
+            let diff = 1.0 - ratio;
+
+            Vector::new(diff * self.offset.x, -diff * self.offset.y)
+        } else {
+            let diff = self.scale - prev_scale;
+            let cursor = self.mouse_position.unwrap_or(Point::ORIGIN);
+
+            Vector::new(diff * cursor.x, -diff * cursor.y)
         };
 
         self.offset = self.offset + delta;
@@ -1378,8 +1395,8 @@ impl<State> InfiniteState<State> {
     }
 
     fn reset_all(&mut self, offset: Vector, scale: f32) {
-        self.reset_offset(offset);
         self.reset_scale(scale);
+        self.reset_offset(offset);
     }
 
     fn reset_offset(&mut self, init: Vector) {
@@ -1388,7 +1405,16 @@ impl<State> InfiniteState<State> {
 
     fn reset_scale(&mut self, init: f32) {
         self.scale_level = init;
+        let prev_scale = self.scale;
         self.scale = E.powf(self.scale_level);
+
+        let delta = {
+            let diff = self.scale - prev_scale;
+            let mouse = self.mouse_position.unwrap_or_default();
+            Vector::new(diff * mouse.x, -diff * mouse.y)
+        };
+
+        self.offset = self.offset + delta;
     }
 }
 
@@ -1494,20 +1520,81 @@ fn get_cursors(cursor: Cursor, bounds: Rectangle, offset: Vector, scale: f32) ->
     }
 }
 
-fn digits(num: u32) -> u32 {
-    if num == 0 {
-        return 1;
+/// Returns the minimum bounds that can fit `text`.
+pub fn min_text_bounds(text: &str, bounds: Size, size: impl Into<Pixels>) -> Size {
+    use iced::{
+        advanced::{
+            self,
+            text::{self, Paragraph},
+        },
+        alignment, Font,
+    };
+
+    let text = advanced::Text {
+        content: text,
+        bounds,
+        font: Font::default(),
+        size: size.into(),
+        line_height: text::LineHeight::default(),
+        horizontal_alignment: alignment::Horizontal::Left,
+        vertical_alignment: alignment::Vertical::Center,
+        wrapping: text::Wrapping::default(),
+        shaping: text::Shaping::default(),
+    };
+
+    let text = iced_graphics::text::Paragraph::with_text(text);
+
+    text.min_bounds()
+}
+
+fn wrap_event(
+    event: iced::Event,
+    bounds: Rectangle,
+    offset: Vector,
+    scale: f32,
+) -> Option<event::Event> {
+    match event.clone() {
+        iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
+            let point = bounds.center() - position;
+            let point = (point - offset) * (1. / scale);
+            let position = Point::new(-point.x, point.y);
+            Some(Event::Mouse(mouse::Event::CursorMoved { position }))
+        }
+        iced::Event::Mouse(event) => Some(Event::Mouse(event)),
+        iced::Event::Keyboard(event) => Some(Event::Keyboard(event)),
+        iced::Event::Touch(event) => {
+            let event = match event {
+                touch::Event::FingerLost { id, position } => {
+                    let position = bounds.center() - position;
+                    let position = (position - offset) * (1. / scale);
+                    let position = Point::new(-position.x, position.y);
+                    Event::Touch(touch::Event::FingerLost { id, position })
+                }
+                touch::Event::FingerMoved { id, position } => {
+                    let position = bounds.center() - position;
+                    let position = (position - offset) * (1. / scale);
+                    let position = Point::new(-position.x, position.y);
+                    Event::Touch(touch::Event::FingerMoved { id, position })
+                }
+                touch::Event::FingerLifted { id, position } => {
+                    let position = bounds.center() - position;
+                    let position = (position - offset) * (1. / scale);
+                    let position = Point::new(-position.x, position.y);
+                    Event::Touch(touch::Event::FingerLifted { id, position })
+                }
+                touch::Event::FingerPressed { id, position } => {
+                    let position = bounds.center() - position;
+                    let position = (position - offset) * (1. / scale);
+                    let position = Point::new(-position.x, position.y);
+                    Event::Touch(touch::Event::FingerPressed { id, position })
+                }
+            };
+
+            Some(event)
+        }
+
+        _ => None,
     }
-
-    let mut output = 0;
-    let mut num = num;
-
-    while num > 0 {
-        output += 1;
-        num /= 10;
-    }
-
-    output
 }
 
 fn transform_path<State>(
@@ -1595,13 +1682,19 @@ where
     Renderer: geometry::Renderer,
 {
     let offset_diff = state.add_level(zoom, focal_origin);
+    let focal_point = if focal_origin {
+        Point::ORIGIN
+    } else {
+        state.mouse_position.unwrap_or(Point::ORIGIN)
+    };
 
     let msg = canvas.program.on_zoom(
         &mut state.state,
         bounds,
         cursors.0,
         cursors.1,
-        state.scale_level + 1.0,
+        focal_point,
+        state.scale,
         zoom,
     );
 

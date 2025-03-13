@@ -1977,14 +1977,14 @@ mod canvas {
                     if let Some(cursor_position) = cursor.position() {
                         let size =
                             Size::new(cursor_position.x - from.x, from.y - cursor_position.y);
-                        //let rect = Path::rectangle(*from, size);
-                        buffer.stroke_rectangle(*from, size, stroke);
+                        let bottom_left = Point::new(from.x, from.y - size.height);
+                        buffer.stroke_rectangle(bottom_left, size, stroke);
                     }
                 }
                 Self::Typing { from, to, text } => {
                     let size = Size::new(to.x - from.x, from.y - to.y);
-                    //let rect = Path::rectangle(*from, size);
-                    buffer.stroke_rectangle(*from, size, stroke);
+                    let bottom_left = Point::new(from.x, from.y - size.height);
+                    buffer.stroke_rectangle(bottom_left, size, stroke);
 
                     let mut text = text.clone();
                     text.push_str("▸");

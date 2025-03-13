@@ -1,0 +1,49 @@
+[
+    {
+        "name": "C#",
+        "influenced": [
+            "Clojure",
+            "Dart",
+            "F#",
+            "Rust"
+        ]
+    }, 
+    {
+        "name": "Java",
+        "influenced": [
+            "C#",
+            "Scala",
+            "Kotlin"
+        ]
+    }, 
+    {
+        "name": "C",
+        "influenced": [
+            "Lua",
+            "C++",
+            "C#",
+            "C-",
+            "Java",
+            "Go",
+            "Objective-C"
+        ]
+    }, 
+    {
+        "name": "JavaScript",
+        "influenced": [
+            "CoffeScript",
+            "TypeScript",
+            "Reason"
+        ]
+    }, 
+    {
+        "name": "Lisp",
+        "influenced": [
+            "Clojure",
+            "Common Lisp",
+            "Julia",
+            "Scheme"
+        ]
+    } 
+
+] 
